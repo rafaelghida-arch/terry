@@ -50,7 +50,7 @@ export default function NewProject() {
 
   return (
     <Screen>
-      <TopBar title="Novo projeto" step="1 de 4" />
+      <TopBar title="Novo projeto" step="1 de 3" />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ padding: 16, gap: 22 }} keyboardShouldPersistTaps="handled">
           <View style={{ gap: 10 }}>

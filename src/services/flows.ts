@@ -1,7 +1,8 @@
 // Fluxos do projeto: análise, roteiro, tomadas. Tudo passa pelo store, que salva no aparelho.
-import { parseBrief, titleFromBrief } from '../domain/brief';
+import { parseBrief, subjectFromBrief, titleFromBrief } from '../domain/brief';
 import { generateHooksLocal, newId, regenerateSceneLocal } from '../domain/scriptLocal';
 import {
+  averageStructure,
   analysisIsCurrent,
   combineFeatures,
   effectiveFeatures,
@@ -26,7 +27,7 @@ export function createProject(input: { brief: string; genre: Genre; targetDurati
   const p: Project = {
     id: newId('proj'),
     version: 1,
-    title: titleFromBrief(input.brief),
+    title: projectTitle(input.brief, input.genre),
     createdAt: now,
     updatedAt: now,
     isDemo: false,
@@ -132,7 +133,6 @@ function mergeAiAnalysis(local: StyleAnalysis, ai: AiAnalysis): StyleAnalysis {
   for (const r of ai.perReference) {
     if (r.structure?.length >= 2) structureByRef[r.referenceId] = r.structure.map((b) => ({ duration: b.duration, voice: b.voice, shot: b.shot, beat: b.beat, note: b.note }));
   }
-  const firstId = local.referenceIds[0];
   const look = combineLook(
     ai.perReference.map((r) => ({
       ...r,
@@ -144,7 +144,8 @@ function mergeAiAnalysis(local: StyleAnalysis, ai: AiAnalysis): StyleAnalysis {
   return {
     look,
     structureByRef,
-    structure: firstId ? structureByRef[firstId] : local.structure,
+    // média das referências, sem pedir pro criador escolher uma
+    structure: averageStructure(local.referenceIds.map((id) => structureByRef[id]).filter(Boolean)) ?? local.structure,
     source: 'ia',
     model: ai.model,
     createdAt: Date.now(),
@@ -225,7 +226,7 @@ export function addObservation(projectId: string, text: string) {
 }
 
 function scriptContext(p: Project) {
-  const features = effectiveFeatures(p.analysis!, p.primaryReferenceId);
+  const features = p.analysis!.combined; // média das referências
   const primary = p.primaryReferenceId ? p.references.find((r) => r.id === p.primaryReferenceId) : undefined;
   const primarySummary = primary ? p.analysis!.perReference.find((r) => r.referenceId === primary.id)?.summary : undefined;
   return {
@@ -236,7 +237,7 @@ function scriptContext(p: Project) {
     features,
     observations: p.analysis!.observations.filter((o) => o.enabled).map((o) => o.text),
     primaryReference: primary ? `${primary.name}: ${primarySummary ?? ''}` : null,
-    structure: (primary && p.analysis!.structureByRef?.[primary.id]) || p.analysis!.structure,
+    structure: p.analysis!.structure,
   };
 }
 
@@ -538,4 +539,14 @@ export async function publishIdea(projectId: string): Promise<PublishIdea> {
   }
   updateProject(projectId, (cur) => ({ ...cur, publish: idea }));
   return idea;
+}
+
+/** Título do projeto: em comida, prato e lugar; nos outros tipos, o assunto do briefing. */
+export function projectTitle(brief: string, genre: Genre): string {
+  if (genre === 'gastronomia') return titleFromBrief(brief);
+  const subject = subjectFromBrief(brief, '');
+  if (!subject) return titleFromBrief(brief);
+  const t = subject.charAt(0).toUpperCase() + subject.slice(1);
+  const place = parseBrief(brief).place;
+  return place && !t.includes(place) ? `${t} · ${place}` : t;
 }

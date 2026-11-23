@@ -50,7 +50,7 @@ export default function References() {
 
   return (
     <Screen>
-      <TopBar title="Referências" step="2 de 4" onBack={() => router.replace('/')} />
+      <TopBar title="Inspirações" step="2 de 3" onBack={() => router.replace('/')} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
         <Text style={T.h1}>Seus vídeos de referência</Text>
         <TerryLine text={terry.references(p)} />
@@ -81,7 +81,7 @@ export default function References() {
         <Text style={T.small}>De 1 a 3 vídeos. TikToks salvos no celular funcionam. Os arquivos ficam só no aparelho; para a análise por IA vão apenas alguns quadros pequenos.</Text>
       </ScrollView>
       <Footer>
-        <Button label="Entender o estilo" onPress={() => router.push(`/p/${p.id}/style`)} disabled={!p.references.length || busy} />
+        <Button label="Criar roteiro" onPress={() => router.push(`/p/${p.id}/style`)} disabled={!p.references.length || busy} />
       </Footer>
     </Screen>
   );

@@ -30,7 +30,7 @@ export default function Home() {
   const colW = (width - 32 - gap) / 2;
 
   const confirmDelete = (p: Project) =>
-    showDialog('Apagar projeto?', `“${p.title}” e os clipes gravados nele saem do aparelho.`, [
+    showDialog('Apagar projeto?', `“${p.title}” e os clipes gravados nele saem do aparelho. Isso não dá pra desfazer.`, [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Apagar', style: 'destructive', onPress: () => removeProject(p.id) },
     ]);
@@ -106,6 +106,9 @@ export default function Home() {
               <View style={st.dur}>
                 <Text style={st.durText}>{durationOf(item)}</Text>
               </View>
+              <Pressable onPress={() => confirmDelete(item)} hitSlop={10} style={st.del} accessibilityLabel={`Apagar ${item.title}`}>
+                <Icon.Trash size={16} color={C.text} />
+              </Pressable>
             </Thumb>
             <Text numberOfLines={2} style={st.title}>
               {item.title}
@@ -133,6 +136,7 @@ const st = StyleSheet.create({
   tag: { backgroundColor: 'rgba(13,13,15,0.75)', borderRadius: R.pill, paddingHorizontal: 8, paddingVertical: 3 },
   tagText: { color: C.accent, fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
   dur: { position: 'absolute', right: 8, bottom: 8, backgroundColor: 'rgba(13,13,15,0.75)', borderRadius: R.pill, paddingHorizontal: 8, paddingVertical: 3 },
+  del: { position: 'absolute', top: 6, right: 6, width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(13,13,15,0.75)', alignItems: 'center', justifyContent: 'center' },
   durText: { color: C.text, fontSize: 11, fontWeight: '700' },
   title: { color: C.text, fontSize: 14, fontWeight: '700', marginTop: 8 },
 });

@@ -14,6 +14,7 @@ export default function Hooks() {
   const p = useProject(id);
   const [selected, setSelected] = useState<string | undefined>(p?.chosenHookId);
   const [regen, setRegen] = useState(false);
+  const [showSeen, setShowSeen] = useState(false);
   if (!p) return null;
   const hooks = p.hooks ?? [];
   const aiScript = p.analysis?.source === 'ia';
@@ -26,11 +27,18 @@ export default function Hooks() {
 
   return (
     <Screen>
-      <TopBar title="Gancho" step="4 de 4" onBack={() => (p.isDemo ? router.replace('/') : router.back())} />
+      <TopBar title="Gancho" step="3 de 3" onBack={() => router.replace(p.isDemo ? '/' : `/p/${p.id}/refs`)} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
         {p.isDemo ? <Badge label="PROJETO DE DEMONSTRAÇÃO" tone="accent" /> : null}
         <Text style={T.h1}>Como você quer abrir?</Text>
         <TerryLine text={terry.hookChoice(p)} />
+        {p.analysisNote && !p.isDemo ? <Text style={T.small}>{p.analysisNote}</Text> : null}
+        {p.analysis?.observations.length ? (
+          <Pressable onPress={() => setShowSeen((v) => !v)} style={st.seen}>
+            <Text style={[T.tiny, { color: C.accent }]}>{showSeen ? 'ESCONDER' : 'O QUE EU VI NAS INSPIRAÇÕES'}</Text>
+            {showSeen ? p.analysis.observations.map((o) => <Text key={o.id} style={T.small}>• {o.text}</Text>) : null}
+          </Pressable>
+        ) : null}
         {!aiScript ? (
           <Text style={T.small}>
             {p.isDemo ? 'Roteiro de exemplo gerado no aparelho.' : 'Roteiro base montado no aparelho, sem IA. Ajusta à vontade antes de gravar.'}
@@ -98,5 +106,6 @@ const st = StyleSheet.create({
   cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: C.mute, alignItems: 'center', justifyContent: 'center' },
   radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.accent },
+  seen: { gap: 6, backgroundColor: C.surface, borderRadius: R.m, padding: 12 },
   first: { flexDirection: 'row', gap: 10, backgroundColor: C.surface2, borderRadius: R.m, padding: 10 },
 });

@@ -333,3 +333,14 @@ test('publicação: 3 hashtags do nicho, título e descrição só com os fatos 
   assert.equal(descriptionFromBrief(GENRE_INFO.review.example), 'Review de um fone bluetooth de R$ 150.');
   assert.ok(rv.sound.search.length > 3);
 });
+
+import { averageStructure } from './style';
+test('média das referências: ritmo médio e fala onde a maioria fala', () => {
+  const a = [{ duration: 2, voice: false }, { duration: 2, voice: true }, { duration: 2, voice: true }]; // 3 planos/6 s
+  const b = [{ duration: 1, voice: false }, { duration: 1, voice: false }, { duration: 2, voice: true }, { duration: 2, voice: true }, { duration: 2, voice: true }, { duration: 2, voice: true }]; // 6 planos/10 s
+  const avg = averageStructure([a, b])!;
+  assert.equal(avg.length, 4); // 0,55 plano/s × 8 s ≈ 4
+  assert.equal(avg[0].voice, false); // as duas abrem sem fala
+  assert.ok(avg.slice(-2).every((x) => x.voice));
+  assert.equal(averageStructure([a]), a);
+});

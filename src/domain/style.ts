@@ -269,7 +269,7 @@ export function localAnalysis(refs: Reference[]): StyleAnalysis {
     terryLine: feats.length ? terryLineFor(combined, feats) : null,
     referenceIds: refs.map((r) => r.id),
     structureByRef: Object.fromEntries(refs.filter((r) => r.metrics).map((r) => [r.id, structureFromMetrics(r.metrics!)])),
-    structure: refs[0]?.metrics ? structureFromMetrics(refs[0].metrics) : undefined,
+    structure: averageStructure(refs.filter((r) => r.metrics).map((r) => structureFromMetrics(r.metrics!))),
     look: combineLook(
       refs.filter((r) => r.metrics).map((r) => ({ usesMusic: r.metrics!.musicLikely ?? null })),
       mergePalettes(refs.map((r) => r.metrics?.palette ?? [])),
@@ -334,4 +334,38 @@ export function cutsFromDiffs(diffs: number[], interval: number): number[] {
     cuts.push(Math.round(t * 100) / 100);
   }
   return cuts;
+}
+
+/**
+ * Média das estruturas de várias referências: quantos planos por segundo, onde há fala e a
+ * duração relativa de cada plano. Nada de escolher uma — o roteiro segue o que elas têm em comum.
+ */
+export function averageStructure(list: StructureBeat[][]): StructureBeat[] | undefined {
+  const valid = list.filter((s) => s.length);
+  if (!valid.length) return undefined;
+  if (valid.length === 1) return valid[0];
+  const totals = valid.map((s) => s.reduce((a, b) => a + b.duration, 0));
+  const meanTotal = mean(totals);
+  const rate = mean(valid.map((s, i) => s.length / Math.max(0.1, totals[i]))); // planos por segundo
+  const n = Math.max(1, Math.round(rate * meanTotal));
+  // Para cada plano da média, olha o ponto equivalente (na mesma fração do vídeo) em cada referência.
+  const at = (s: StructureBeat[], total: number, frac: number) => {
+    let t = 0;
+    for (const b of s) {
+      if (frac * total < t + b.duration) return b;
+      t += b.duration;
+    }
+    return s[s.length - 1];
+  };
+  const out: StructureBeat[] = [];
+  for (let i = 0; i < n; i++) {
+    const frac = (i + 0.5) / n;
+    const beats = valid.map((s, k) => at(s, totals[k], frac));
+    const voices = beats.filter((b) => b.voice).length;
+    out.push({ duration: r2(meanTotal / n), voice: voices * 2 >= beats.length && voices > 0 });
+  }
+  // A abertura vale pela maioria das referências (é o que mais marca o estilo).
+  const openVoice = valid.filter((s) => s[0].voice).length;
+  out[0].voice = openVoice * 2 > valid.length;
+  return out;
 }
