@@ -1,17 +1,24 @@
 {
   "expo": {
-    "name": "terry",
+    "name": "TERRY",
     "slug": "terry",
-    "version": "1.0.0",
+    "scheme": "terry",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#000000",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "app.terry.mobile",
+      "infoPlist": {
+        "UIBackgroundModes": []
+      }
     },
     "android": {
+      "package": "app.terry.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0B0B0D",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -20,6 +27,62 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "backgroundColor": "#000000"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "O TERRY usa a câmera para gravar as tomadas do seu roteiro.",
+          "microphonePermission": "O TERRY grava o som junto com o vídeo: fala, chapa e ambiente.",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "O TERRY grava a sua narração por cima da prévia."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "O TERRY abre a galeria para você escolher vídeos de referência e clipes."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "O TERRY abre a galeria para você escolher vídeos.",
+          "savePhotosPermission": "O TERRY salva o vídeo exportado na sua galeria.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ],
+      "expo-video",
+      "expo-sharing",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "16.4"
+          },
+          "android": {
+            "minSdkVersion": 28
+          }
+        }
+      ],
+      "expo-asset"
+    ],
+    "experiments": {
+      "typedRoutes": false
     }
   }
 }

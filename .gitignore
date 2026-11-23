@@ -39,3 +39,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# TERRY
+server/node_modules/
+server/.env
+.env
+.env.local

@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["TerryMediaModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.terrymedia.TerryMediaModule"]
+  }
+}
