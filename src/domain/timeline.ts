@@ -45,6 +45,7 @@ export function framingFreedom(width: number, height: number, zoom = 1) {
 }
 
 export type Segment = {
+  itemId: string;
   sceneId: string;
   sceneIndex: number;
   clip: Clip;
@@ -67,26 +68,111 @@ export function clipRange(clip: Clip) {
   return { start, end };
 }
 
-/** Monta a ordem aprovada: cada cena com clipe vira um segmento, com corte seco. */
-export function buildTimeline(project: Pick<Project, 'scenes' | 'clips' | 'skippedSceneIds'>): Timeline {
+/** Um trecho na linha do tempo do editor (a "gilete" divide um trecho em dois). */
+export type EditItem = { id: string; clipId: string; sceneId: string; start: number; end: number; hidden?: boolean };
+
+type TimelineSource = Pick<Project, 'scenes' | 'clips' | 'skippedSceneIds'> & { edit?: { items?: EditItem[] } };
+
+let itemSeq = 0;
+const itemId = () => `it_${Date.now().toString(36)}${(itemSeq++).toString(36)}`;
+
+/**
+ * Trechos do editor sincronizados com o roteiro. Sem edição manual, um trecho por cena com clipe.
+ * Com edição, mantém a ordem e os cortes do criador; clipes novos entram perto da cena deles;
+ * trechos de clipes trocados ou apagados saem.
+ */
+export function resolveItems(p: TimelineSource): EditItem[] {
+  const sceneIndex = new Map(p.scenes.map((s, i) => [s.id, i]));
+  const autoItem = (sceneId: string, clip: Clip): EditItem => {
+    const { start, end } = clipRange(clip);
+    return { id: `auto_${sceneId}_${clip.id}`, clipId: clip.id, sceneId, start, end };
+  };
+  if (!p.edit?.items) {
+    return p.scenes.flatMap((s) => (s.clipId && p.clips[s.clipId] ? [autoItem(s.id, p.clips[s.clipId])] : []));
+  }
+  const items = p.edit.items
+    .filter((it) => {
+      const clip = p.clips[it.clipId];
+      const scene = p.scenes.find((s) => s.id === it.sceneId);
+      return clip && scene && scene.clipId === it.clipId;
+    })
+    .map((it) => {
+      const clip = p.clips[it.clipId];
+      const start = Math.max(0, Math.min(it.start, clip.duration));
+      return { ...it, start, end: Math.max(start, Math.min(it.end, clip.duration)) };
+    });
+  p.scenes.forEach((scene, si) => {
+    const clip = scene.clipId ? p.clips[scene.clipId] : undefined;
+    if (!clip || items.some((it) => it.clipId === clip.id)) return;
+    // entra depois do último trecho de uma cena anterior
+    let at = 0;
+    items.forEach((it, k) => {
+      if ((sceneIndex.get(it.sceneId) ?? 0) < si) at = k + 1;
+    });
+    items.splice(at, 0, autoItem(scene.id, clip));
+  });
+  return items;
+}
+
+/** Monta a linha do tempo: os trechos visíveis em sequência, com corte seco. */
+export function buildTimeline(project: TimelineSource): Timeline {
   const segments: Segment[] = [];
   const missing: Scene[] = [];
   const skipped: Scene[] = [];
-  let offset = 0;
-  project.scenes.forEach((scene, sceneIndex) => {
-    const clip = scene.clipId ? project.clips[scene.clipId] : undefined;
-    if (!clip) {
-      if (project.skippedSceneIds.includes(scene.id)) skipped.push(scene);
-      else missing.push(scene);
-      return;
-    }
-    const { start, end } = clipRange(clip);
-    const duration = end - start;
-    if (duration < 0.1) return;
-    segments.push({ sceneId: scene.id, sceneIndex, clip, start, end, offset, duration });
-    offset += duration;
+  project.scenes.forEach((scene) => {
+    if (scene.clipId && project.clips[scene.clipId]) return;
+    if (project.skippedSceneIds.includes(scene.id)) skipped.push(scene);
+    else missing.push(scene);
   });
+  const sceneIndex = new Map(project.scenes.map((s, i) => [s.id, i]));
+  let offset = 0;
+  for (const it of resolveItems(project)) {
+    if (it.hidden) continue;
+    const clip = project.clips[it.clipId];
+    const duration = it.end - it.start;
+    if (!clip || duration < 0.1) continue;
+    segments.push({ itemId: it.id, sceneId: it.sceneId, sceneIndex: sceneIndex.get(it.sceneId) ?? 0, clip, start: it.start, end: it.end, offset, duration });
+    offset += duration;
+  }
   return { segments, total: offset, missing, skipped };
+}
+
+// ---- ferramentas de edição (puras) ----
+
+/** Gilete: divide o trecho no ponto do clipe indicado. */
+export function splitItem(items: EditItem[], id: string, clipTime: number): EditItem[] {
+  const i = items.findIndex((it) => it.id === id);
+  if (i < 0) return items;
+  const it = items[i];
+  if (clipTime <= it.start + 0.2 || clipTime >= it.end - 0.2) return items;
+  const a = { ...it, end: round2(clipTime) };
+  const b = { ...it, id: itemId(), start: round2(clipTime) };
+  return [...items.slice(0, i), a, b, ...items.slice(i + 1)];
+}
+
+export function removeItem(items: EditItem[], id: string): EditItem[] {
+  return items.map((it) => (it.id === id ? { ...it, hidden: true } : it));
+}
+
+export function duplicateItem(items: EditItem[], id: string): EditItem[] {
+  const i = items.findIndex((it) => it.id === id);
+  if (i < 0) return items;
+  return [...items.slice(0, i + 1), { ...items[i], id: itemId() }, ...items.slice(i + 1)];
+}
+
+/** Move o trecho uma posição entre os trechos visíveis. */
+export function moveItem(items: EditItem[], id: string, dir: -1 | 1): EditItem[] {
+  const visible = items.map((it, k) => ({ it, k })).filter((x) => !x.it.hidden);
+  const v = visible.findIndex((x) => x.it.id === id);
+  const w = v + dir;
+  if (v < 0 || w < 0 || w >= visible.length) return items;
+  const out = [...items];
+  [out[visible[v].k], out[visible[w].k]] = [out[visible[w].k], out[visible[v].k]];
+  return out;
+}
+
+export function trimItem(items: EditItem[], id: string, start: number, end: number): EditItem[] {
+  return items.map((it) => (it.id === id ? { ...it, start: round2(start), end: round2(end) } : it));
 }
 
 export function segmentAt(timeline: Timeline, t: number): { index: number; local: number } | null {

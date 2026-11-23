@@ -194,3 +194,19 @@ export async function transcribeClip(projectId: string, clip: Clip): Promise<Tra
     return { cues: [], ok: false, reason: e instanceof Error ? e.message : String(e) };
   }
 }
+
+/** Trechos com voz de um clipe (no tempo do arquivo), medidos pelo áudio. */
+export async function voiceSpansOf(projectId: string, clip: Clip): Promise<{ start: number; end: number }[]> {
+  try {
+    const raw = await native().analyzeVideo(clip.uri, {
+      sampleFps: 1,
+      frameCount: 1,
+      frameMaxSize: 64,
+      outputDir: new Directory(mediaDir(projectId, 'frames'), 'voz').uri,
+      audioWindow: 0.1,
+    });
+    return voicedSpans(classifyAudio(raw.rmsDb, raw.zcr, raw.audioWindow).labels, raw.audioWindow);
+  } catch {
+    return [];
+  }
+}

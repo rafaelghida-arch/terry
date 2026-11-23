@@ -327,10 +327,10 @@ test('publicação: 3 hashtags do nicho, título e descrição só com os fatos 
   assert.equal(food.hashtags.length, 3);
   assert.ok(food.hashtags.every((h) => h.startsWith('#') && !/fyp|viral/.test(h)));
   assert.equal(food.title, 'Xis de costela de R$ 38 em Porto Alegre');
-  assert.equal(food.description, 'Provei um xis de costela de R$ 38 em Porto Alegre.');
+  assert.equal(food.description, 'Provei um xis de costela de R$ 38 em Porto Alegre. Mostrei o tamanho e contei se compraria de novo.');
   const rv = localPublishIdea({ brief: GENRE_INFO.review.example, title: 'Fone bluetooth', genre: 'review' });
-  assert.equal(rv.title, 'Fone bluetooth: vale a pena?');
-  assert.equal(descriptionFromBrief(GENRE_INFO.review.example), 'Review de um fone bluetooth de R$ 150.');
+  assert.equal(rv.title, 'Fone bluetooth de R$ 150: vale a pena?');
+  assert.equal(descriptionFromBrief(GENRE_INFO.review.example), 'Review de um fone bluetooth de R$ 150. Mostrei o som, a bateria e se vale a pena.');
   assert.ok(rv.sound.search.length > 3);
 });
 
@@ -343,4 +343,41 @@ test('média das referências: ritmo médio e fala onde a maioria fala', () => {
   assert.equal(avg[0].voice, false); // as duas abrem sem fala
   assert.ok(avg.slice(-2).every((x) => x.voice));
   assert.equal(averageStructure([a]), a);
+});
+
+import { duplicateItem, moveItem, removeItem, resolveItems, splitItem, trimItem } from './timeline';
+test('edição: gilete, excluir, duplicar, mover e aparar trechos; legendas seguem o trecho', () => {
+  const scenes = [
+    { id: 's1', role: 'gancho' as const, title: 'A', instruction: '', duration: 3, audio: '', clipId: 'a' },
+    { id: 's2', role: 'detalhe' as const, title: 'B', instruction: '', duration: 3, audio: '', clipId: 'b' },
+    { id: 's3', role: 'detalhe' as const, title: 'C', instruction: '', duration: 3, audio: '' },
+  ];
+  const a = { ...clip('a', 6), captions: [{ id: 'q1', start: 1, end: 2, text: 'primeira' }, { id: 'q2', start: 4, end: 5, text: 'segunda' }] };
+  const clips: Record<string, Clip> = { a, b: clip('b', 4) };
+  const base = { scenes, clips, skippedSceneIds: [] as string[] };
+  let items = resolveItems(base);
+  assert.equal(items.length, 2);
+  // gilete no meio do clipe "a"
+  items = splitItem(items, items[0].id, 3);
+  assert.deepEqual(items.map((i) => [i.clipId, i.start, i.end]), [['a', 0, 3], ['a', 3, 6], ['b', 0, 4]]);
+  // exclui a 1ª metade, duplica o "b", move a 2ª metade de "a" pro fim
+  items = removeItem(items, items[0].id);
+  items = duplicateItem(items, items[2].id);
+  items = moveItem(items, items[1].id, 1);
+  const p = { ...base, edit: { items } };
+  const tl = buildTimeline(p);
+  assert.deepEqual(tl.segments.map((s) => [s.clip.id, s.start, s.end]), [['b', 0, 4], ['a', 3, 6], ['b', 0, 4]]);
+  assert.equal(tl.total, 11);
+  // legenda só do trecho que ficou ("segunda" em 4 s do clipe → 4 + 1 = 5 s na montagem)
+  const cues = timelineCaptions(p);
+  assert.deepEqual(cues.map((c) => [c.text, c.start]), [['segunda', 5]]);
+  // aparar um trecho
+  const trimmed = buildTimeline({ ...base, edit: { items: trimItem(items, items[1].id, 0.5, 2) } });
+  assert.equal(trimmed.segments[0].duration, 1.5);
+  // clipe novo gravado para a cena 3 entra depois dos trechos das cenas anteriores
+  const withC = resolveItems({ scenes: [...scenes.slice(0, 2), { ...scenes[2], clipId: 'c' }], clips: { ...clips, c: clip('c', 2) }, skippedSceneIds: [], edit: { items } });
+  assert.equal(withC.at(-1)!.clipId, 'c');
+  // clipe trocado na cena 2: trechos do clipe antigo saem
+  const swapped = resolveItems({ scenes: [scenes[0], { ...scenes[1], clipId: 'b2' }, scenes[2]], clips: { a, b2: clip('b2', 5) }, skippedSceneIds: [], edit: { items } });
+  assert.ok(!swapped.some((i) => i.clipId === 'b') && swapped.some((i) => i.clipId === 'b2'));
 });

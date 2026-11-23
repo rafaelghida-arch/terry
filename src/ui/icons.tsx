@@ -86,6 +86,15 @@ export const Icon = {
   More: ({ size, color = C.text }: P) => (
     <S size={size}><Circle cx={5.5} cy={12} r={1.6} fill={color} /><Circle cx={12} cy={12} r={1.6} fill={color} /><Circle cx={18.5} cy={12} r={1.6} fill={color} /></S>
   ),
+  Blade: ({ size, color }: P) => (
+    <S size={size}><Circle cx={6.5} cy={17.5} r={2.6} {...st(color)} /><Circle cx={17.5} cy={17.5} r={2.6} {...st(color)} /><Path d="M8.4 15.6L18 4M15.6 15.6L6 4" {...st(color)} /></S>
+  ),
+  Duplicate: ({ size, color }: P) => (
+    <S size={size}><Rect x={8} y={8} width={12} height={12} rx={2.5} {...st(color)} /><Path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" {...st(color)} /></S>
+  ),
+  Forward: ({ size, color }: P) => (
+    <S size={size}><Path d="M9 5l7 7-7 7" {...st(color)} /></S>
+  ),
   Zoom: ({ size, color }: P) => (
     <S size={size}><Circle cx={10.5} cy={10.5} r={6.5} {...st(color)} /><Path d="M15.5 15.5L20 20M8 10.5h5M10.5 8v5" {...st(color)} /></S>
   ),

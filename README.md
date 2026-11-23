@@ -142,9 +142,25 @@ Na primeira montagem, o editor começa com o visual das referências e nada alé
 
 Sem referência que justifique, o corte sai limpo, sem efeitos.
 
+## Editor: gilete e ferramentas básicas
+
+Acima da faixa de clipes ficam as ferramentas de corte, que valem para o trecho selecionado:
+
+- **Dividir** (gilete): corta no ponto em que a prévia está.
+- **Duplicar** o trecho.
+- **‹ ›** move o trecho para trás ou para frente.
+- **Excluir** tira o trecho da montagem. O clipe continua guardado na tomada do roteiro.
+- **Aparar** ajusta o trecho selecionado.
+
+Clipes gravados depois entram sozinhos perto da cena deles, e as legendas acompanham cada trecho.
+
 ## Legendas
 
-Em **Legendas → Mostrar legendas**, o TERRY ouve **todos os takes** e transcreve a fala no próprio aparelho: reconhecimento de fala da Apple no iOS, reconhecedor do sistema no Android 13+. Quando não dá para transcrever, usa a fala do roteiro. Takes sem fala aparecem na lista para você escrever.
+Em **Legendas → Mostrar legendas**, todos os takes em que há fala ganham legenda, do mesmo jeito. O TERRY detecta a fala pelo áudio de cada take e, para o texto:
+
+1. transcreve no próprio aparelho (reconhecimento de fala da Apple no iOS, reconhecedor do sistema no Android 13+);
+2. se não der, espalha a fala do roteiro por toda a fala detectada;
+3. se não houver texto, cria a legenda vazia no tempo certo de cada fala, para você escrever.
 
 A lista é organizada por take. Toque no texto para corrigir. Cor: branco ou até 3 cores tiradas dos seus vídeos. Estilo: contorno ou faixa. Posição: embaixo ou no meio. O mesmo estilo vale para todos os takes. As legendas aparecem na prévia e saem gravadas no MP4.
 

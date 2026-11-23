@@ -230,6 +230,8 @@ export type Project = {
     narrationVolume: number;
     narration?: { uri: string; duration: number };
     zoom?: import('./look').ZoomMode;
+    /** Trechos da linha do tempo depois de dividir, mover, duplicar ou excluir. */
+    items?: import('./timeline').EditItem[];
     /** O visual das referências já foi aplicado na primeira montagem. */
     lookApplied?: boolean;
     music?: { id: string; title: string; uri: string; volume: number };

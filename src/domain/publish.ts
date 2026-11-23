@@ -1,7 +1,8 @@
 // Sugestões para publicar: 3 hashtags do nicho, título, descrição e uma recomendação de trilha.
 // Sem IA, sai daqui: hashtags conhecidas de cada nicho e texto montado só com os fatos do briefing.
 
-import { parseBrief } from './brief';
+import { parseBrief, subjectFromBrief } from './brief';
+import { forms } from './scriptLocal';
 import type { Genre } from './genres';
 
 export type PublishIdea = {
@@ -39,41 +40,90 @@ const SOUND: Record<Genre, PublishIdea['sound']> = {
   outro: { kind: 'Instrumental leve', search: 'background instrumental', why: 'Fica por baixo sem competir com o som real do vídeo.' },
 };
 
-const PAST: [RegExp, string][] = [
-  [/^vou provar\b/i, 'Provei'],
-  [/^vou experimentar\b/i, 'Experimentei'],
-  [/^vou testar\b/i, 'Testei'],
-  [/^vou fazer\b/i, 'Fiz'],
-  [/^vou mostrar\b/i, 'Mostrei'],
-  [/^vou ensinar\b/i, 'Ensinei'],
-  [/^vou explicar\b/i, 'Expliquei'],
-  [/^vou divulgar\b/i, 'Chegou'],
-  [/^quero mostrar\b/i, 'Mostrei'],
-  [/^quero explicar\b/i, 'Expliquei'],
-];
+const IRREGULAR: Record<string, string> = {
+  fazer: 'fiz', ir: 'fui', ver: 'vi', trazer: 'trouxe', dizer: 'disse', ter: 'tive', pôr: 'pus', por: 'pus', vir: 'vim', dar: 'dei', ser: 'fui', estar: 'estive',
+};
 
-/** Primeira frase do briefing, contada como coisa que aconteceu ("Vou provar" → "Provei"). */
+/** Infinitivo → passado em 1ª pessoa ("mostrar" → "mostrei", "explicar" → "expliquei"). */
+export function pastFirstPerson(verb: string): string {
+  const v = verb.toLowerCase();
+  if (IRREGULAR[v]) return IRREGULAR[v];
+  if (v.endsWith('car')) return v.slice(0, -3) + 'quei';
+  if (v.endsWith('gar')) return v.slice(0, -3) + 'guei';
+  if (v.endsWith('çar')) return v.slice(0, -3) + 'cei';
+  if (v.endsWith('ar')) return v.slice(0, -2) + 'ei';
+  if (v.endsWith('er') || v.endsWith('ir')) return v.slice(0, -2) + 'i';
+  return v;
+}
+
+const LEAD = /^(vou|quero|pretendo|vamos|eu vou|hoje vou|hoje eu vou)\s+/i;
+const INF = /^([a-zà-ú]+(?:ar|er|ir|ôr|or))\b/i;
+
+/** Uma frase do briefing contada como coisa feita ("Quero mostrar X e contar Y" → "Mostrei X e contei Y"). */
+function toPast(sentence: string): string {
+  let out = sentence.trim();
+  if (!LEAD.test(out)) return out;
+  out = out.replace(LEAD, '');
+  const m = out.match(INF);
+  if (!m) return out;
+  out = pastFirstPerson(m[1]) + out.slice(m[1].length);
+  // verbos coordenados: "... e contar se ..." → "... e contei se ..."
+  out = out.replace(/\b(e|,)\s+([a-zà-ú]+(?:ar|er|ir))\b(?=\s)/gi, (all, sep, verb) => (/(?:ar|er|ir)$/i.test(verb) && (verb.length > 3 || IRREGULAR[verb.toLowerCase()]) ? `${sep} ${pastFirstPerson(verb)}` : all));
+  return out;
+}
+
+/** Descrição: as duas primeiras frases do briefing, contadas como coisa que aconteceu. */
 export function descriptionFromBrief(brief: string): string {
-  const first = brief.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/)[0] ?? '';
-  let out = first;
-  for (const [re, rep] of PAST) {
-    if (re.test(out)) {
-      out = out.replace(re, rep);
-      break;
+  const sentences = brief.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, 2);
+  const out = sentences
+    .map(toPast)
+    .map((x) => x.replace(/^(fiz|testei|mostrei) (um |o )?review de/i, 'Review de'))
+    .map((x) => x.charAt(0).toUpperCase() + x.slice(1))
+    .map((x) => (/[.!?]$/.test(x) ? x : `${x}.`));
+  return out.join(' ');
+}
+
+const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
+
+/** Título no jeito do nicho, só com o que está no briefing. */
+export function titleFor(brief: string, fallback: string, genre: Genre): string {
+  const f = parseBrief(brief);
+  const subject = subjectFromBrief(brief, '');
+  const lower = brief.toLowerCase();
+  const S = subject ? cap(subject) : fallback;
+  switch (genre) {
+    case 'gastronomia':
+      return f.dish ? `${cap(f.dish)}${f.priceRaw ? ` de ${f.priceRaw}` : ''}${f.place ? ` em ${f.place}` : ''}` : fallback;
+    case 'review':
+      return f.priceRaw ? `${S} de ${f.priceRaw}: vale a pena?` : f.wantsVerdict ? `${S}: vale a pena?` : `Testei ${forms(subject || 'produto').o} ${subject || 'produto'}`;
+    case 'beleza':
+      return /barat|pouco|econ[oô]m/.test(lower) ? `${S} gastando pouco` : /fim do dia|dura|resist/.test(lower) ? `${S}: dura o dia todo?` : `${S} passo a passo`;
+    case 'tutorial': {
+      const n = lower.match(/(\d+)\s*passos?/);
+      return n ? `${S} em ${n[1]} passos` : `Como fazer ${subject || 'isso'}`;
     }
+    case 'opiniao':
+      return subject ? `O que muda com ${forms(subject).o} ${subject}` : fallback;
+    case 'marketing': {
+      const off = brief.match(/(\d+)\s*%/);
+      return off ? `${S} com ${off[1]}% off` : S;
+    }
+    case 'vlog':
+      return f.place && !S.includes(f.place) ? `${S} em ${f.place}` : S;
+    case 'fitness': {
+      const min = lower.match(/(\d+)\s*min/);
+      return `${S}${min ? ` de ${min[1]} minutos` : ''}${/sem equipamento/.test(lower) ? ' sem equipamento' : ''}`;
+    }
+    default:
+      return subject ? S : fallback;
   }
-  out = out.replace(/^(Fiz|Testei|Mostrei) review de/i, 'Review de');
-  return out.charAt(0).toUpperCase() + out.slice(1);
 }
 
 export function localPublishIdea(input: { brief: string; title: string; genre: Genre }): PublishIdea {
-  const f = parseBrief(input.brief);
-  let title = input.title.replace(/^Demonstração · /, '');
-  if (input.genre === 'review' && f.wantsVerdict && !/vale/i.test(title)) title = `${title}: vale a pena?`;
-  if (input.genre === 'gastronomia' && f.dish) title = `${f.dish.charAt(0).toUpperCase()}${f.dish.slice(1)}${f.priceRaw ? ` de ${f.priceRaw}` : ''}${f.place ? ` em ${f.place}` : ''}`;
+  const fallback = input.title.replace(/^Demonstração · /, '');
   return {
     hashtags: HASHTAGS[input.genre],
-    title: title.slice(0, 60),
+    title: titleFor(input.brief, fallback, input.genre).slice(0, 70),
     description: descriptionFromBrief(input.brief),
     sound: SOUND[input.genre],
     source: 'local',

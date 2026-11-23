@@ -11,8 +11,10 @@ import { C, R, T } from './theme';
 const HANDLE = 18;
 const MIN_LEN = 0.5;
 
-export function TrimSheet({ clip, visible, onClose, onSave, suggestion }: {
+export function TrimSheet({ clip, visible, onClose, onSave, suggestion, initial }: {
   clip: Clip | undefined;
+  /** Trecho atual (quando o clipe já foi dividido no editor). */
+  initial?: { start: number; end: number };
   visible: boolean;
   onClose: () => void;
   onSave: (start: number, end: number) => void;
@@ -31,7 +33,7 @@ export function TrimSheet({ clip, visible, onClose, onSave, suggestion }: {
 
   useEffect(() => {
     if (!clip || !visible) return;
-    setRange([clip.trimStart, clip.trimEnd > 0 ? clip.trimEnd : clip.duration]);
+    setRange(initial ? [initial.start, initial.end] : [clip.trimStart, clip.trimEnd > 0 ? clip.trimEnd : clip.duration]);
     filmstrip(clip.uri, clip.duration, 8).then(setFrames);
   }, [clip?.id, visible]);
 

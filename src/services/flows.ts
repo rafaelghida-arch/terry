@@ -10,17 +10,17 @@ import {
   localAnalysis,
   terryLineFor,
 } from '../domain/style';
-import { buildTimeline, suggestTrim } from '../domain/timeline';
+import { buildTimeline, resolveItems, suggestTrim, type EditItem } from '../domain/timeline';
 import { terry } from '../domain/terry';
 import { effectiveGenre } from '../domain/genres';
 import { combineLook, lookDefaults, lookOf } from '../domain/look';
-import { DEFAULT_CAPTIONS, draftCaptions, newCue, toClipTime } from '../domain/captions';
+import { cuesFromText, DEFAULT_CAPTIONS, newCue, placeholderCues, toClipTime } from '../domain/captions';
 import type { AudioMode, CaptionCue, CaptionSettings, Clip, Genre, StructureBeat, HookOption, Observation, Project, Scene, StyleAnalysis, TargetDuration } from '../domain/types';
 import { getProject, putProject, updateProject } from '../state/store';
 import { removeFile } from '../storage/projects';
 import { AiUnavailableError, aiConfigured, analyzeReferencesAI, generateScriptAI, publishIdeaAI, regenerateSceneAI, type AiAnalysis } from './ai';
 import { localPublishIdea, type PublishIdea } from '../domain/publish';
-import { analyzeReference, paletteOf, transcribeClip, voiceOnsetOf } from './media';
+import { analyzeReference, paletteOf, transcribeClip, voiceOnsetOf, voiceSpansOf } from './media';
 
 export function createProject(input: { brief: string; genre: Genre; targetDuration: TargetDuration; audioModes: AudioMode[] }): Project {
   const now = Date.now();
@@ -398,6 +398,11 @@ export async function assignClip(projectId: string, sceneId: string, clip: Clip)
   return terry.clipAdded(clip.duration, scene, trim);
 }
 
+/** Aplica uma ferramenta de edição (dividir, mover, duplicar, excluir, aparar) aos trechos do editor. */
+export function editItems(projectId: string, fn: (items: EditItem[]) => EditItem[]) {
+  updateProject(projectId, (p) => ({ ...p, edit: { ...p.edit, items: fn(resolveItems(p)) } }));
+}
+
 export function updateClip(projectId: string, clipId: string, patch: Partial<Clip>) {
   updateProject(projectId, (p) => (p.clips[clipId] ? { ...p, clips: { ...p.clips, [clipId]: { ...p.clips[clipId], ...patch } } } : p));
 }
@@ -421,36 +426,46 @@ export function setGenre(projectId: string, genre: Genre) {
 // ---------------------------------------------------------------------------
 // Legendas
 
-export type CaptionReport = { transcribed: number; fromScript: number; empty: string[]; unavailable?: string };
+export type CaptionReport = { transcribed: number; fromScript: number; toWrite: number; noSpeech: string[]; unavailable?: string };
 
 /**
- * Liga as legendas e legenda TODOS os takes do mesmo jeito: transcreve a fala de cada um no
- * aparelho; onde não der, usa a fala do roteiro; o que sobrar fica listado para o criador escrever.
+ * Liga as legendas em TODOS os takes com fala, do mesmo jeito:
+ * 1. ouve o take e transcreve no aparelho;
+ * 2. se não der, espalha a fala do roteiro por toda a fala detectada no áudio;
+ * 3. se não houver texto, cria a legenda vazia no tempo de cada fala, para o criador escrever.
  * `force` refaz também os takes que já tinham legenda.
  */
 export async function enableCaptions(projectId: string, force = false, onProgress?: (msg: string) => void): Promise<CaptionReport> {
   const p = getProject(projectId)!;
   const tl = buildTimeline(p);
-  const report: CaptionReport = { transcribed: 0, fromScript: 0, empty: [] };
+  const report: CaptionReport = { transcribed: 0, fromScript: 0, toWrite: 0, noSpeech: [] };
   const result: Record<string, CaptionCue[]> = {};
-  for (const [i, seg] of tl.segments.entries()) {
+  const seen = new Set<string>();
+  const takes = tl.segments.filter((sg) => (seen.has(sg.clip.id) ? false : (seen.add(sg.clip.id), true)));
+  for (const [i, seg] of takes.entries()) {
     const clip = seg.clip;
     const scene = p.scenes[seg.sceneIndex];
     if (!force && clip.captions?.length) continue;
-    onProgress?.(`Ouvindo o take ${i + 1} de ${tl.segments.length}…`);
+    onProgress?.(`Ouvindo o take ${i + 1} de ${takes.length}…`);
+    const range = { start: 0, end: clip.duration };
+    const spans = clip.hasAudio ? await voiceSpansOf(projectId, clip) : [];
     let cues: CaptionCue[] = [];
     if (clip.hasAudio) {
       const t = await transcribeClip(projectId, clip);
-      if (t.ok) cues = t.cues;
-      else report.unavailable = t.reason;
-      if (cues.length) report.transcribed++;
+      if (t.ok && t.cues.length) {
+        cues = t.cues;
+        report.transcribed++;
+      } else if (!t.ok) report.unavailable = t.reason;
     }
-    if (!cues.length && scene?.line) {
-      const onset = clip.hasAudio ? await voiceOnsetOf(projectId, clip.uri) : null;
-      cues = draftCaptions(clip, scene, onset);
+    if (!cues.length && spans.length && scene?.line) {
+      cues = cuesFromText(scene.line, spans, range);
       if (cues.length) report.fromScript++;
     }
-    if (!cues.length) report.empty.push(scene?.title ?? `Take ${i + 1}`);
+    if (!cues.length && spans.length) {
+      cues = placeholderCues(spans, range);
+      report.toWrite += cues.length;
+    }
+    if (!cues.length) report.noSpeech.push(scene?.title ?? `Take ${i + 1}`);
     result[clip.id] = cues;
   }
   const look = lookOf(p.analysis);
@@ -520,7 +535,8 @@ export function addCueAt(projectId: string, t: number): string | null {
 
 export async function publishIdea(projectId: string): Promise<PublishIdea> {
   const p = getProject(projectId)!;
-  if (p.publish?.sound) return p.publish;
+  // A sugestão da IA fica guardada; a local é recalculada (é barata e acompanha o briefing).
+  if (p.publish?.source === 'ia' && p.publish.sound) return p.publish;
   const genre = effectiveGenre(p.genre, p.analysis?.genre?.detected);
   let idea: PublishIdea = localPublishIdea({ brief: p.brief, title: p.title, genre });
   if (p.analysis?.source === 'ia' && aiConfigured()) {

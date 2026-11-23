@@ -265,6 +265,7 @@ const st = StyleSheet.create({
   optRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.surface2, borderRadius: R.m, padding: 12 },
   cue: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.surface2, borderRadius: R.m, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: 'transparent' },
+  cueEmpty: { borderColor: C.border, borderStyle: 'dashed' },
   cueInput: { flex: 1, color: C.text, fontSize: 15, paddingVertical: 4 },
   recRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.surface2, borderRadius: R.m, padding: 12 },
 });
@@ -364,7 +365,7 @@ function CueRow({ cue, active, onEdit, onDelete, onSeek }: { cue: TimelineCue; a
   const [text, setText] = useState(cue.text);
   useEffect(() => setText(cue.text), [cue.text]);
   return (
-    <View style={[st.cue, active && { borderColor: C.accent }]}>
+    <View style={[st.cue, !cue.text.trim() && st.cueEmpty, active && { borderColor: C.accent }]}>
       <Pressable onPress={() => onSeek(cue.start + 0.01)} hitSlop={6}>
         <Text style={[T.tiny, active && { color: C.accent }]}>{formatPrecise(cue.start)}</Text>
       </Pressable>
@@ -373,7 +374,7 @@ function CueRow({ cue, active, onEdit, onDelete, onSeek }: { cue: TimelineCue; a
         onChangeText={setText}
         onEndEditing={() => text !== cue.text && onEdit(cue, text)}
         onBlur={() => text !== cue.text && onEdit(cue, text)}
-        placeholder="Escreve a fala"
+        placeholder="Escreve o que foi dito aqui"
         placeholderTextColor={C.mute}
         multiline
         style={st.cueInput}

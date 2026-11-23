@@ -55,14 +55,14 @@ const round = (n: number) => Math.round(n * 100) / 100;
 export type TimelineCue = { clipId: string; cueId: string; start: number; end: number; text: string };
 
 /** Legendas no tempo do vídeo montado (só o que cai dentro do trecho usado de cada clipe). */
-export function timelineCaptions(project: Pick<Project, 'scenes' | 'clips' | 'skippedSceneIds'>): TimelineCue[] {
+export function timelineCaptions(project: Pick<Project, 'scenes' | 'clips' | 'skippedSceneIds'>, includeEmpty = false): TimelineCue[] {
   const tl = buildTimeline(project);
   const out: TimelineCue[] = [];
   for (const seg of tl.segments) {
     for (const c of seg.clip.captions ?? []) {
       const a = Math.max(c.start, seg.start);
       const b = Math.min(c.end, seg.end);
-      if (b - a < 0.15 || !c.text.trim()) continue;
+      if (b - a < 0.15 || (!includeEmpty && !c.text.trim())) continue;
       out.push({ clipId: seg.clip.id, cueId: c.id, start: round(seg.offset + a - seg.start), end: round(seg.offset + b - seg.start), text: c.text.trim() });
     }
   }
@@ -149,5 +149,20 @@ export function voicedSpans(labels: ('silencio' | 'som' | 'voz')[], win: number)
     }
   });
   if (open !== null) out.push({ start: open * win, end: (labels.length - gap) * win });
+  return out;
+}
+
+/** Legendas vazias no tempo de cada trecho com voz (para o criador escrever o que falou). */
+export function placeholderCues(spans: { start: number; end: number }[], range: { start: number; end: number }): CaptionCue[] {
+  const out: CaptionCue[] = [];
+  for (const sp of spans) {
+    let a = Math.max(range.start, sp.start);
+    const b = Math.min(range.end, sp.end);
+    while (b - a > 0.3) {
+      const e = Math.min(b, a + 2.5);
+      out.push(newCue(a, e, ''));
+      a = e;
+    }
+  }
   return out;
 }

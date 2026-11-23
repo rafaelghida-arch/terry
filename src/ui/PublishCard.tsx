@@ -1,7 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { publishText, type PublishIdea } from '../domain/publish';
+import type { PublishIdea } from '../domain/publish';
 import { publishIdea } from '../services/flows';
 import { Icon } from './icons';
 import { Badge } from './kit';
@@ -35,39 +35,41 @@ export function PublishCard({ projectId }: { projectId: string }) {
       <View style={st.head}>
         <Text style={T.h3}>Pra postar</Text>
         {idea.source === 'ia' ? <Badge label="IA" tone="accent" /> : null}
-        <View style={{ flex: 1 }} />
-        <Pressable onPress={() => copy('tudo', publishText(idea))} hitSlop={8} style={st.copyAll}>
-          <Text style={st.copyText}>{copied === 'tudo' ? 'Copiado' : 'Copiar tudo'}</Text>
-        </Pressable>
       </View>
 
-      <View style={st.tags}>
-        {idea.hashtags.map((h) => (
-          <Pressable key={h} onPress={() => copy(h, h)} style={[st.tag, copied === h && { borderColor: C.accent }]}>
-            <Text style={st.tagText}>{h}</Text>
-          </Pressable>
-        ))}
+      <CopyField label="TÍTULO" text={idea.title} copied={copied === 'titulo'} onCopy={() => copy('titulo', idea.title)} />
+      <CopyField label="DESCRIÇÃO" text={idea.description} copied={copied === 'desc'} onCopy={() => copy('desc', idea.description)} />
+
+      <View style={st.reco}>
+        <Text style={T.tiny}>HASHTAGS RECOMENDADAS</Text>
+        <Text style={st.hashtags}>{idea.hashtags.join('   ')}</Text>
+        <Text style={T.small}>Sugestão do TERRY: as mais usadas nesse nicho. Use se fizer sentido pro seu vídeo.</Text>
       </View>
 
-      <Pressable onPress={() => copy('titulo', idea.title)} style={{ gap: 2 }}>
-        <Text style={T.tiny}>TÍTULO {copied === 'titulo' ? '· COPIADO' : ''}</Text>
-        <Text style={T.body}>{idea.title}</Text>
-      </Pressable>
-      <Pressable onPress={() => copy('desc', idea.description)} style={{ gap: 2 }}>
-        <Text style={T.tiny}>DESCRIÇÃO {copied === 'desc' ? '· COPIADO' : ''}</Text>
-        <Text style={T.body}>{idea.description}</Text>
-      </Pressable>
-
-      <View style={st.sound}>
-        <Icon.Audio size={18} color={C.accent} />
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={T.tiny}>TRILHA PRA ESSE NICHO</Text>
-          <Text style={T.body}>{idea.sound.kind}</Text>
-          <Text style={T.small}>
-            Busca por “{idea.sound.search}” nos sons do TikTok ou do Instagram. {idea.sound.why}
-          </Text>
+      <View style={st.reco}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Icon.Audio size={16} color={C.dim} />
+          <Text style={T.tiny}>TRILHA RECOMENDADA</Text>
         </View>
+        <Text style={T.body}>{idea.sound.kind}</Text>
+        <Text style={T.small}>
+          Recomendação pra quando for publicar: procura por “{idea.sound.search}” nos sons do TikTok ou do Instagram. {idea.sound.why}
+        </Text>
       </View>
+    </View>
+  );
+}
+
+function CopyField({ label, text, copied, onCopy }: { label: string; text: string; copied: boolean; onCopy: () => void }) {
+  return (
+    <View style={st.field}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={T.tiny}>{label}</Text>
+        <Text style={T.body}>{text}</Text>
+      </View>
+      <Pressable onPress={onCopy} hitSlop={8} style={[st.copy, copied && { backgroundColor: C.accent }]} accessibilityLabel={`Copiar ${label.toLowerCase()}`}>
+        <Text style={[st.copyText, copied && { color: C.accentInk }]}>{copied ? 'Copiado' : 'Copiar'}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -75,10 +77,9 @@ export function PublishCard({ projectId }: { projectId: string }) {
 const st = StyleSheet.create({
   card: { backgroundColor: C.surface, borderRadius: R.l, padding: 14, gap: 12 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  copyAll: { paddingHorizontal: 12, height: 30, borderRadius: R.pill, backgroundColor: C.accentSoft, justifyContent: 'center' },
-  copyText: { color: C.accent, fontSize: 12, fontWeight: '800' },
-  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  tag: { paddingHorizontal: 12, height: 32, borderRadius: R.pill, backgroundColor: C.surface2, borderWidth: 1, borderColor: 'transparent', justifyContent: 'center' },
-  tagText: { color: C.text, fontSize: 14, fontWeight: '700' },
-  sound: { flexDirection: 'row', gap: 10, backgroundColor: C.surface2, borderRadius: R.m, padding: 12 },
+  field: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.surface2, borderRadius: R.m, padding: 12 },
+  copy: { paddingHorizontal: 14, height: 34, borderRadius: R.pill, backgroundColor: C.accentSoft, justifyContent: 'center' },
+  copyText: { color: C.accent, fontSize: 13, fontWeight: '800' },
+  reco: { gap: 4, borderRadius: R.m, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed', padding: 12 },
+  hashtags: { color: C.dim, fontSize: 15, fontWeight: '700' },
 });

@@ -6,7 +6,9 @@ import { useScreen } from '../../../ui/simulator';
 import { terry } from '../../../domain/terry';
 import { buildTimeline, cropRectFor, formatPrecise } from '../../../domain/timeline';
 import type { Clip } from '../../../domain/types';
-import { updateClip } from '../../../services/flows';
+import { editItems, updateClip } from '../../../services/flows';
+import { duplicateItem, moveItem, removeItem, splitItem, trimItem } from '../../../domain/timeline';
+import { showDialog } from '../../../ui/dialog';
 import { keepNarration } from '../../../services/media';
 import { removeFile } from '../../../storage/projects';
 import { updateProject, useProject } from '../../../state/store';
@@ -53,6 +55,15 @@ function CroppedPreview({ tp, width, height, zoom }: { tp: ReturnType<typeof use
   );
 }
 
+function EditTool({ label, icon, onPress, disabled, accessibilityLabel }: { label: string; icon: React.ReactNode; onPress: () => void; disabled?: boolean; accessibilityLabel?: string }) {
+  return (
+    <Pressable onPress={onPress} disabled={disabled} accessibilityLabel={accessibilityLabel ?? label} style={({ pressed }) => [st.editTool, { opacity: disabled ? 0.3 : pressed ? 0.6 : 1 }]}>
+      {icon}
+      {label ? <Text style={st.editToolText}>{label}</Text> : null}
+    </Pressable>
+  );
+}
+
 export default function Editor() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const p = useProject(id);
@@ -69,6 +80,7 @@ export default function Editor() {
   const timeline = useMemo(() => (p ? buildTimeline(p) : { segments: [], total: 0, missing: [], skipped: [] }), [p]);
   const narrationOn = !!p?.audioModes.includes('narracao');
   const cues = useMemo(() => (p ? timelineCaptions(p) : []), [p]);
+  const allCues = useMemo(() => (p ? timelineCaptions(p, true) : []), [p]);
   const captionSettings = p?.captions ?? DEFAULT_CAPTIONS;
   const extras = useMemo(() => {
     const list: { uri: string; volume: number }[] = [];
@@ -90,9 +102,10 @@ export default function Editor() {
   const describe = (r: CaptionReport) => {
     const parts: string[] = [];
     if (r.transcribed) parts.push(`Ouvi e transcrevi ${r.transcribed} take${r.transcribed > 1 ? 's' : ''}.`);
-    if (r.fromScript) parts.push(`${r.fromScript} veio da fala do roteiro: confere se foi isso mesmo.`);
-    if (r.empty.length) parts.push(`Sem fala: ${r.empty.join(', ')}. Escreve ali embaixo se quiser.`);
-    if (!r.transcribed && r.unavailable) parts.push(r.unavailable === 'simulador' ? 'No simulador eu não consigo ouvir os clipes; no celular eu transcrevo.' : 'Não consegui transcrever neste aparelho agora.');
+    if (r.fromScript) parts.push(`Em ${r.fromScript}, usei a fala do roteiro no tempo da sua voz: confere se foi isso mesmo.`);
+    if (r.toWrite) parts.push(`${r.toWrite} trecho${r.toWrite > 1 ? 's' : ''} com fala ficou sem texto: toca e escreve o que foi dito.`);
+    if (r.noSpeech.length) parts.push(`Sem fala: ${r.noSpeech.join(', ')}.`);
+    if (!r.transcribed && r.unavailable) parts.push(r.unavailable === 'simulador' ? 'No simulador eu não consigo transcrever; no celular eu ouço e escrevo.' : 'Não consegui transcrever neste aparelho agora.');
     return parts.join(' ');
   };
 
@@ -144,10 +157,10 @@ export default function Editor() {
   const curSeg = timeline.segments[tp.index];
   const zoomNow = curSeg ? zoomAt(zoomFor(tp.index, zoomMode), (tp.time - curSeg.offset) / Math.max(0.1, curSeg.duration)) : 1;
   const groups: CaptionGroup[] = timeline.segments.map((sg) => ({
-    key: sg.sceneId,
+    key: sg.itemId,
     title: p.scenes[sg.sceneIndex]?.title ?? 'Take',
     offset: sg.offset,
-    cues: cues.filter((c) => c.clipId === sg.clip.id && c.start >= sg.offset - 0.01 && c.start < sg.offset + sg.duration),
+    cues: allCues.filter((c) => c.start >= sg.offset - 0.01 && c.start < sg.offset + sg.duration),
   }));
 
   const pickOwnMusic = async () => {
@@ -190,6 +203,37 @@ export default function Editor() {
         <Text style={[st.time, { color: C.mute }]}>{formatPrecise(timeline.total)}</Text>
       </View>
 
+      {/* Ferramentas de corte no trecho selecionado */}
+      <View style={st.editBar}>
+        <EditTool
+          label="Dividir"
+          icon={<Icon.Blade size={18} />}
+          disabled={!curSeg}
+          onPress={() => {
+            if (!curSeg) return;
+            tp.pause();
+            const at = curSeg.start + (tp.time - curSeg.offset);
+            editItems(p.id, (items) => splitItem(items, curSeg.itemId, at));
+          }}
+        />
+        <EditTool label="Duplicar" icon={<Icon.Duplicate size={18} />} disabled={!seg} onPress={() => seg && editItems(p.id, (items) => duplicateItem(items, seg.itemId))} />
+        <EditTool label="" icon={<Icon.Back size={18} />} disabled={!seg || selected === 0} onPress={() => { if (seg) { editItems(p.id, (items) => moveItem(items, seg.itemId, -1)); setSelected(selected - 1); } }} accessibilityLabel="Mover pra trás" />
+        <EditTool label="" icon={<Icon.Forward size={18} />} disabled={!seg || selected >= timeline.segments.length - 1} onPress={() => { if (seg) { editItems(p.id, (items) => moveItem(items, seg.itemId, 1)); setSelected(selected + 1); } }} accessibilityLabel="Mover pra frente" />
+        <EditTool
+          label="Excluir"
+          icon={<Icon.Trash size={18} color={C.danger} />}
+          disabled={!seg || timeline.segments.length < 2}
+          onPress={() => {
+            if (!seg) return;
+            tp.pause();
+            showDialog('Excluir esse trecho?', 'Ele sai da montagem. O clipe continua guardado na tomada do roteiro.', [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Excluir', style: 'destructive', onPress: () => editItems(p.id, (items) => removeItem(items, seg.itemId)) },
+            ]);
+          }}
+        />
+      </View>
+
       {/* Faixa de clipes com indicador de posição no centro */}
       <View style={st.stripWrap}>
         <ScrollView
@@ -209,7 +253,7 @@ export default function Editor() {
                 const sel = i === selected;
                 return (
                   <Pressable
-                    key={s.sceneId}
+                    key={s.itemId}
                     onPress={() => {
                       setSelected(i);
                       tp.seek(s.offset + 0.01);
@@ -238,9 +282,6 @@ export default function Editor() {
           <View style={st.playKnob} />
         </View>
       </View>
-      {timeline.skipped.length ? (
-        <Text style={[T.small, { textAlign: 'center', marginTop: 6 }]}>Montado sem: {timeline.skipped.map((s) => s.title).join(', ')}</Text>
-      ) : null}
 
       <View style={{ flex: 1 }} />
 
@@ -282,10 +323,11 @@ export default function Editor() {
       />
       <TrimSheet
         clip={segClip}
+        initial={seg ? { start: seg.start, end: seg.end } : undefined}
         visible={sheet === 'trim'}
         onClose={close}
         onSave={(a, b) => {
-          if (segClip) updateClip(p.id, segClip.id, { trimStart: a, trimEnd: b });
+          if (seg) editItems(p.id, (items) => trimItem(items, seg.itemId, a, b));
           close();
         }}
       />
@@ -355,6 +397,9 @@ const st = StyleSheet.create({
   segmentSel: { borderColor: C.accent },
   playhead: { position: 'absolute', top: 0, bottom: 0, width: 2, backgroundColor: C.accent, borderRadius: 1, alignItems: 'center' },
   playKnob: { position: 'absolute', top: -5, width: 10, height: 10, borderRadius: 5, backgroundColor: C.accent },
+  editBar: { flexDirection: 'row', justifyContent: 'center', gap: 6, paddingHorizontal: 12, marginTop: 2 },
+  editTool: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 12, borderRadius: R.pill, backgroundColor: C.surface2 },
+  editToolText: { color: C.text, fontSize: 12, fontWeight: '700' },
   toolbarInner: { paddingHorizontal: 4, alignItems: 'center' },
   toolbar: { flexGrow: 0, marginHorizontal: 12, marginBottom: 8, paddingVertical: 8, borderRadius: R.xl, backgroundColor: C.surface2 },
 });

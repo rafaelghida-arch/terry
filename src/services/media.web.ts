@@ -2,7 +2,8 @@
 // A exportação MP4 é nativa e só existe no app do celular.
 import type { CaptionCue, Clip, MediaInfo, Project, Reference } from '../domain/types';
 import { captionPalette } from '../domain/palette';
-import { cutsFromDiffs, metricsFromRaw, type RawAnalysis } from '../domain/style';
+import { classifyAudio, cutsFromDiffs, metricsFromRaw, type RawAnalysis } from '../domain/style';
+import { voicedSpans } from '../domain/captions';
 import { DEFAULT_FRAMING } from '../domain/timeline';
 import { newId } from '../domain/scriptLocal';
 
@@ -235,4 +236,11 @@ export type Transcription = { cues: CaptionCue[]; ok: boolean; reason?: string }
 /** O navegador não transcreve arquivos: no simulador as legendas saem das falas do roteiro. */
 export async function transcribeClip(_projectId: string, _clip: Clip): Promise<Transcription> {
   return { cues: [], ok: false, reason: 'simulador' };
+}
+
+/** Trechos com voz de um clipe (no tempo do arquivo), medidos pelo áudio no navegador. */
+export async function voiceSpansOf(_projectId: string, clip: Clip): Promise<{ start: number; end: number }[]> {
+  const a = await audioEnvelope(clip.uri, 0.1);
+  if (!a.hasAudio) return [];
+  return voicedSpans(classifyAudio(a.rms, a.zcr, 0.1).labels, 0.1);
 }
