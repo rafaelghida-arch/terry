@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { parseBrief, titleFromBrief } from './brief';
 import { buildTimeline, cropRectFor, suggestTrim, buildExportSpec, segmentAt, framingFromCropCenter } from './timeline';
 import { classifyAudio, localAnalysis, metricsFromRaw, terryLineFor, featuresFromMetrics, cutsFromDiffs, defaultFeatures } from './style';
-import { generateHooksLocal, regenerateSceneLocal } from './scriptLocal';
+import { articleFor, generateHooksLocal, regenerateSceneLocal } from './scriptLocal';
 import type { Clip, Project, Reference, StyleFeatures } from './types';
 
 const BRIEF = 'Vou provar um xis de costela de R$ 38 em Porto Alegre. Quero mostrar o tamanho e contar se compraria de novo.';
@@ -132,7 +132,7 @@ test('roteiro: referências diferentes mudam a primeira tomada; ganchos mudam o 
   const talk = featuresFromMetrics(refWith(true, 'y').metrics!);
   const hs = generateHooksLocal({ brief: BRIEF, features: sound, targetDuration: 30, audioModes: ['fala', 'ambiente'] });
   const ht = generateHooksLocal({ brief: BRIEF, features: talk, targetDuration: 30, audioModes: ['fala'] });
-  assert.match(hs[0].scenes[0].instruction, /costela na chapa/);
+  assert.match(hs[0].scenes[0].instruction, /Abre com a costela na chapa/);
   assert.match(ht[0].scenes[0].instruction, /Segura o xis ao lado do rosto/);
   assert.equal(ht[0].scenes[0].line, 'Que tamanho de xis vem por 38 reais?');
   assert.notEqual(hs[0].scenes[0].instruction, hs[1].scenes[0].instruction);
@@ -169,4 +169,15 @@ test('enquadramento: inverso devolve o mesmo deslocamento', () => {
   const c = cropRectFor(1920, 1080, f);
   const back = framingFromCropCenter(c.left + c.width / 2, c.top + c.height / 2, c, 1.5);
   assert.ok(Math.abs(back.x - 0.4) < 1e-9);
+});
+
+test('concordância: artigo certo para ingredientes', () => {
+  assert.deepEqual(['costela', 'xis', 'hambúrguer', 'batatas', 'pizza', 'pastel'].map(articleFor), ['a', 'o', 'o', 'as', 'a', 'o']);
+});
+
+test('roteiro com prato feminino concorda em gênero', () => {
+  const hs = generateHooksLocal({ brief: 'Vou provar uma pizza de calabresa por R$ 50', features: defaultFeatures(), targetDuration: 60, audioModes: ['fala'] });
+  const text = JSON.stringify(hs);
+  assert.ok(!/ o pizza| do pizza| no pizza|esse pizza|Abrir o pizza/.test(text), text);
+  assert.match(text, /Abrir a pizza ao meio|Abre a calabresa no forno/);
 });

@@ -20,7 +20,11 @@ function emit() {
 export function ensureLoaded() {
   if (loaded) return;
   loaded = true;
-  for (const p of listProjects()) projects[p.id] = p;
+  try {
+    for (const p of listProjects()) projects[p.id] = p;
+  } catch (e) {
+    console.warn('Não consegui ler os rascunhos salvos', e);
+  }
 }
 
 export function flush() {

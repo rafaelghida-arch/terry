@@ -44,7 +44,7 @@ import kotlin.math.sqrt
 // - analyzeVideo: diferenças entre quadros, envelope de áudio e quadros-chave em JPEG
 // - exportComposition: Media3 Transformer — cortes secos, recorte 9:16, volumes, narração, MP4 H.264/AAC
 
-@UnstableApi
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class TerryMediaModule : Module() {
   private val mainHandler = Handler(Looper.getMainLooper())
   private var transformer: Transformer? = null
@@ -333,7 +333,7 @@ class TerryMediaModule : Module() {
 
   private fun volumeProcessor(volume: Float): AudioProcessor {
     val p = ChannelMixingAudioProcessor()
-    for (ch in 1..2) p.putChannelMixingMatrix(ChannelMixingMatrix.create(ch, ch).scaleBy(volume))
+    for (ch in 1..2) p.putChannelMixingMatrix(ChannelMixingMatrix.createForConstantGain(ch, ch).scaleBy(volume))
     return p
   }
 
@@ -405,7 +405,7 @@ class TerryMediaModule : Module() {
           promise.resolve(
             mapOf(
               "uri" to Uri.fromFile(File(outputPath)).toString(),
-              "duration" to exportResult.durationMs / 1000.0,
+              "duration" to (if (exportResult.approximateDurationMs > 0) exportResult.approximateDurationMs else totalMs) / 1000.0,
             ),
           )
         }

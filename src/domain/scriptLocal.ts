@@ -16,6 +16,34 @@ type Approach = 'som' | 'pergunta' | 'opiniao' | 'resultado';
 let seq = 0;
 export const newId = (p: string) => `${p}_${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
+const FEMININE = /^(carne|costela|picanha|pizza|esfiha|coxinha|tapioca|lasanha|torta|empada|feijoada|moqueca|massa|panqueca|marmita|parmegiana|batata|linguiça|linguica|calabresa|fritura|chapa|massa|sobremesa|salsicha|maminha|fraldinha|alcatra|costelinha|cebola|mussarela|muçarela|burrata|panceta|barriga)/;
+const PLURAL = /s$/;
+
+/** Artigo definido com concordância simples (costela → a, xis → o, batatas → as). */
+export function articleFor(word: string): string {
+  const w = word.trim().toLowerCase().split(' ')[0];
+  const fem = FEMININE.test(w) || (/a$/.test(w) && !/(ma|pa)$/.test(w));
+  const plural = PLURAL.test(w) && !/^(xis|lápis|lapis|ananás)$/.test(w);
+  return (fem ? 'a' : 'o') + (plural ? 's' : '');
+}
+
+/** Formas que concordam em gênero/número com a palavra (o/a, do/da, no/na, um/uma…). */
+export function forms(word: string) {
+  const a = articleFor(word);
+  const fem = a.startsWith('a');
+  const pl = a.endsWith('s');
+  const sfx = (m: string, fe: string) => (fem ? fe : m) + (pl ? 's' : '');
+  return {
+    o: a,
+    do: sfx('do', 'da'),
+    no: sfx('no', 'na'),
+    um: pl ? (fem ? 'umas' : 'uns') : fem ? 'uma' : 'um',
+    esse: sfx('esse', 'essa'),
+    pronto: sfx('pronto', 'pronta'),
+    inteiro: sfx('inteiro', 'inteira'),
+  };
+}
+
 function nouns(f: BriefFacts) {
   const dish = f.dish ?? 'prato';
   const short = f.dishShort ?? dish.split(' ')[0];
@@ -27,10 +55,7 @@ function nouns(f: BriefFacts) {
       : /pastel|coxinha|churros|salgado|batata|frango frito/.test(dish)
         ? 'no óleo'
         : 'na chapa';
-  const article = /^(pizza|esfiha|coxinha|tapioca|lasanha|torta|empada|feijoada|moqueca|massa|panqueca|marmita|costela|picanha|parmegiana)/.test(dish)
-    ? 'a'
-    : 'o';
-  return { dish, short, ingredient, station, article };
+  return { dish, short, ingredient, station, article: articleFor(ingredient), fs: forms(short), fi: forms(ingredient) };
 }
 
 function audioFor(modes: AudioMode[], kind: 'fala' | 'som' | 'reacao' | 'silencio', line?: string): string {
@@ -67,17 +92,17 @@ const SHOTS: Record<string, Builder[]> = {
       });
     },
     (f, c) => {
-      const { short, station } = n(f);
-      return scene('gancho', `Montagem ${station}`, `Filma a montagem do ${short} ${station}, de cima, sem mexer o celular.`, 4, audioFor(c.audioModes, 'som'), {
+      const { short, station, fs } = n(f);
+      return scene('gancho', `Montagem ${station}`, `Filma a montagem ${fs.do} ${short} ${station}, de cima, sem mexer o celular.`, 4, audioFor(c.audioModes, 'som'), {
         tip: 'Apoia o celular em algum lugar firme. O som da cozinha faz o trabalho aqui.',
       });
     },
   ],
   gancho_pergunta: [
     (f, c) => {
-      const { short } = n(f);
-      const q = f.price ? `Que tamanho de ${short} vem por ${f.price}?` : `Será que esse ${short} vale o que cobram?`;
-      return scene('gancho', `Pergunta com o ${short} na mão`, `Segura o ${short} ao lado do rosto, olhando pra câmera, e pergunta.`, 3, audioFor(c.audioModes, 'fala', q), {
+      const { short, fs } = n(f);
+      const q = f.price ? `Que tamanho de ${short} vem por ${f.price}?` : `Será que ${fs.esse} ${short} vale o que cobram?`;
+      return scene('gancho', `Pergunta com ${fs.o} ${short} na mão`, `Segura ${fs.o} ${short} ao lado do rosto, olhando pra câmera, e pergunta.`, 3, audioFor(c.audioModes, 'fala', q), {
         line: q,
         tip: 'Fala a pergunta inteira de uma vez. Se errar, só repete sem cortar.',
       });
@@ -85,8 +110,8 @@ const SHOTS: Record<string, Builder[]> = {
   ],
   gancho_opiniao: [
     (f, c) => {
-      const { short } = n(f);
-      const line = f.place ? `Vim em ${f.place} testar um ${short} que todo mundo comenta.` : `Vim testar um ${short} que todo mundo comenta.`;
+      const { short, fs } = n(f);
+      const line = f.place ? `Vim em ${f.place} testar ${fs.um} ${short} que todo mundo comenta.` : `Vim testar ${fs.um} ${short} que todo mundo comenta.`;
       return scene('gancho', 'Você abrindo direto', `Rosto enquadrado do peito pra cima, ${short} na mesa à frente. Uma frase direta.`, 3, audioFor(c.audioModes, 'fala', line), {
         line,
         tip: 'Começa a falar já olhando pra lente, não pra tela.',
@@ -95,51 +120,51 @@ const SHOTS: Record<string, Builder[]> = {
   ],
   gancho_resultado: [
     (f, c) => {
-      const { short } = n(f);
-      return scene('gancho', `${cap(short)} pronto`, `Close do ${short} pronto na mesa. Aproxima devagar com a mão, sem zoom.`, 3, audioFor(c.audioModes, 'som'), {
+      const { short, fs } = n(f);
+      return scene('gancho', `${cap(short)} ${fs.pronto}`, `Close ${fs.do} ${short} ${fs.pronto} na mesa. Aproxima devagar com a mão, sem zoom.`, 3, audioFor(c.audioModes, 'som'), {
         tip: 'Chega perto com o corpo, não com o zoom.',
       });
     },
   ],
   escala: [
     (f, c) => {
-      const { short } = n(f);
-      return scene('escala', `${cap(short)} na mão`, `Mostra o ${short} inteiro na tua mão pra dar escala. Gira devagar uma vez.`, 3, audioFor(c.audioModes, f.price ? 'fala' : 'silencio', f.price ? `Isso aqui é ${f.price}.` : undefined), {
+      const { short, fs } = n(f);
+      return scene('escala', `${cap(short)} na mão`, `Mostra ${fs.o} ${short} ${fs.inteiro} na tua mão pra dar escala. Gira devagar uma vez.`, 3, audioFor(c.audioModes, f.price ? 'fala' : 'silencio', f.price ? `Isso aqui é ${f.price}.` : undefined), {
         line: f.price ? `Isso aqui é ${f.price}.` : undefined,
         tip: 'Mão aberta embaixo, sem esconder a lateral. É o tamanho que importa aqui.',
       });
     },
     (f, c) => {
-      const { short } = n(f);
-      return scene('escala', `${cap(short)} ao lado de algo conhecido`, `Põe o ${short} do lado de um copo ou do celular e filma de lado, na altura da mesa.`, 3, audioFor(c.audioModes, 'silencio'), {
+      const { short, fs } = n(f);
+      return scene('escala', `${cap(short)} ao lado de algo conhecido`, `Põe ${fs.o} ${short} do lado de um copo ou do celular e filma de lado, na altura da mesa.`, 3, audioFor(c.audioModes, 'silencio'), {
         tip: 'Altura da mesa mostra a altura do recheio.',
       });
     },
   ],
   revelacao: [
     (f, c) => {
-      const { short } = n(f);
-      return scene('revelacao', `Abrir o ${short} ao meio`, `Abre o ${short} ao meio bem na frente da câmera e mostra o recheio por dentro.`, 3, audioFor(c.audioModes, 'som'), {
+      const { short, fs } = n(f);
+      return scene('revelacao', `Abrir ${fs.o} ${short} ao meio`, `Abre ${fs.o} ${short} ao meio bem na frente da câmera e mostra o recheio por dentro.`, 3, audioFor(c.audioModes, 'som'), {
         tip: 'Puxa devagar. Se tiver queijo, espera ele esticar antes de parar.',
       });
     },
     (f, c) => {
-      const { short } = n(f);
-      return scene('revelacao', 'Corte no recheio', `Corta o ${short} com a faca e afasta as metades pra câmera ver as camadas.`, 3, audioFor(c.audioModes, 'som'), {
+      const { short, fs } = n(f);
+      return scene('revelacao', 'Corte no recheio', `Corta ${fs.o} ${short} com a faca e afasta as metades pra câmera ver as camadas.`, 3, audioFor(c.audioModes, 'som'), {
         tip: 'Celular parado, só as mãos se mexem.',
       });
     },
   ],
   detalhe: [
     (f, c) => {
-      const { ingredient } = n(f);
-      return scene('detalhe', `Close na ${ingredient}`, `Bem perto da ${ingredient}, foco no detalhe. Movimento lento de um lado pro outro.`, 2, audioFor(c.audioModes, 'som'));
+      const { ingredient, fi } = n(f);
+      return scene('detalhe', `Close ${fi.no} ${ingredient}`, `Bem perto ${fi.do} ${ingredient}, foco no detalhe. Movimento lento de um lado pro outro.`, 2, audioFor(c.audioModes, 'som'));
     },
   ],
   mordida: [
     (f, c) => {
-      const { short } = n(f);
-      return scene('mordida', 'Primeira mordida', `Primeira mordida no ${short}, de frente pra câmera. Continua gravando depois de mastigar.`, 5, audioFor(c.audioModes, 'reacao'), {
+      const { short, fs } = n(f);
+      return scene('mordida', 'Primeira mordida', `Primeira mordida ${fs.no} ${short}, de frente pra câmera. Continua gravando depois de mastigar.`, 5, audioFor(c.audioModes, 'reacao'), {
         tip: 'Deixa essa fala em aberto. Grava e me conta o que você achou na hora.',
       });
     },
@@ -181,7 +206,7 @@ const HOOK_META: Record<Approach, { title: (f: BriefFacts) => string; approach: 
     approach: 'Começa sem fala, com o preparo e o som. Você só aparece depois.',
   },
   pergunta: {
-    title: (f) => (f.price ? `Pergunta do preço com o ${n(f).short} na mão` : 'Pergunta olhando pra câmera'),
+    title: (f) => (f.price ? `Pergunta do preço com ${n(f).fs.o} ${n(f).short} na mão` : 'Pergunta olhando pra câmera'),
     approach: 'Começa com você olhando pra câmera e fazendo a pergunta que o vídeo responde.',
   },
   opiniao: {
@@ -189,7 +214,7 @@ const HOOK_META: Record<Approach, { title: (f: BriefFacts) => string; approach: 
     approach: 'Começa com o seu rosto e uma frase direta sobre o que você veio testar.',
   },
   resultado: {
-    title: (f) => `Close do ${n(f).short} pronto`,
+    title: (f) => `Close ${n(f).fs.do} ${n(f).short} ${n(f).fs.pronto}`,
     approach: 'Começa com a comida pronta, de perto, sem fala.',
   },
 };

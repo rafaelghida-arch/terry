@@ -66,7 +66,7 @@ export function Button({ label, onPress, kind = 'primary', icon, disabled, loadi
       ]}
     >
       {loading ? <ActivityIndicator color={fg} /> : icon}
-      <Text style={[s.btnText, small && { fontSize: 14 }, { color: fg }]}>{label}</Text>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[s.btnText, small && { fontSize: 14 }, { color: fg }, { flexShrink: 1 }]}>{label}</Text>
     </Pressable>
   );
 }

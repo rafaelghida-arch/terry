@@ -6,6 +6,8 @@ import { terry } from '../../../domain/terry';
 import { buildTimeline, cropRectFor, formatPrecise } from '../../../domain/timeline';
 import type { Clip } from '../../../domain/types';
 import { updateClip } from '../../../services/flows';
+import { keepNarration } from '../../../services/media';
+import { removeFile } from '../../../storage/projects';
 import { updateProject, useProject } from '../../../state/store';
 import { AudioSheet, FramingSheet, NarrationSheet } from '../../../ui/EditorSheets';
 import { Icon } from '../../../ui/icons';
@@ -177,8 +179,16 @@ export default function Editor() {
           tp.play();
         }}
         onStopPreview={() => tp.pause()}
-        onSave={(uri, duration) => updateProject(p.id, (cur) => ({ ...cur, edit: { ...cur.edit, narration: { uri, duration } } }))}
-        onRemove={() => updateProject(p.id, (cur) => ({ ...cur, edit: { ...cur.edit, narration: undefined } }))}
+        onSave={async (uri, duration) => {
+          const kept = await keepNarration(p.id, uri);
+          const old = p.edit.narration?.uri;
+          updateProject(p.id, (cur) => ({ ...cur, edit: { ...cur.edit, narration: { uri: kept, duration } } }));
+          if (old && old !== kept) removeFile(old);
+        }}
+        onRemove={() => {
+          removeFile(p.edit.narration?.uri);
+          updateProject(p.id, (cur) => ({ ...cur, edit: { ...cur.edit, narration: undefined } }));
+        }}
       />
     </Screen>
   );

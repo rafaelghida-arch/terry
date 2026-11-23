@@ -2,6 +2,7 @@
 // Variações escolhidas de forma estável por projeto para não repetir bordão.
 
 import { parseBrief } from './brief';
+import { forms } from './scriptLocal';
 import type { Project, Scene } from './types';
 import { buildTimeline, formatDuration } from './timeline';
 
@@ -68,7 +69,10 @@ export const terry = {
       case 'fachada':
         return 'Pode gravar na saída. Eu encaixo onde ela estiver no roteiro.';
       case 'escala':
-        return `Mão aberta embaixo do ${f.dishShort ?? 'prato'}. É o tamanho que importa aqui.`;
+        {
+        const w = f.dishShort ?? 'prato';
+        return `Mão aberta embaixo ${forms(w).do} ${w}. É o tamanho que importa aqui.`;
+      }
       default:
         return 'Segura o celular firme e grava um pouco antes e depois. Eu corto.';
     }

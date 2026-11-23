@@ -8,6 +8,14 @@ import { buildExportSpec, DEFAULT_FRAMING } from '../domain/timeline';
 import { importFile, mediaDir } from '../storage/projects';
 import { newId } from '../domain/scriptLocal';
 
+const extOf = (uri: string) => (/\.(mov|qt)(\?|$)/i.test(uri) ? 'mov' : /\.m4v(\?|$)/i.test(uri) ? 'm4v' : 'mp4');
+
+/** Guarda a narração na pasta do projeto (o cache do sistema pode ser limpo). */
+export async function keepNarration(projectId: string, uri: string): Promise<string> {
+  const ext = /\.(\w+)(\?|$)/.exec(uri)?.[1] ?? 'm4a';
+  return importFile(uri, mediaDir(projectId, 'audio'), `${newId('narracao')}.${ext}`);
+}
+
 export const nativeMediaAvailable = () => TerryMedia != null;
 
 export class NativeMissingError extends Error {
@@ -53,7 +61,7 @@ export async function filmstrip(uri: string, duration: number, count: number): P
 /** Importa um vídeo de referência para a pasta do projeto, com miniatura e duração. */
 export async function importReference(projectId: string, uri: string, name: string): Promise<Reference> {
   const id = newId('ref');
-  const local = await importFile(uri, mediaDir(projectId, 'refs'), `${id}.mp4`);
+  const local = await importFile(uri, mediaDir(projectId, 'refs'), `${id}.${extOf(uri)}`);
   const info = await getInfo(local);
   const thumbUri = await makeThumb(projectId, local, Math.min(0.5, info.duration / 3));
   return { id, uri: local, name, thumbUri, duration: info.duration, width: info.width, height: info.height };
@@ -103,8 +111,7 @@ export async function voiceOnsetOf(projectId: string, uri: string): Promise<numb
 /** Copia o clipe para o projeto e cria o registro com miniatura. Original fica intacto. */
 export async function createClip(projectId: string, uri: string, origin: Clip['origin']): Promise<Clip> {
   const id = newId('clip');
-  const ext = uri.toLowerCase().endsWith('.mov') ? 'mov' : 'mp4';
-  const local = await importFile(uri, mediaDir(projectId, 'clips'), `${id}.${ext}`);
+  const local = await importFile(uri, mediaDir(projectId, 'clips'), `${id}.${extOf(uri)}`);
   const info = await getInfo(local);
   const thumbUri = await makeThumb(projectId, local, Math.min(0.5, info.duration / 2));
   return {

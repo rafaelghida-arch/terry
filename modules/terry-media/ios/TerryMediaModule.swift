@@ -328,7 +328,13 @@ public class TerryMediaModule: Module {
       throw NSError(domain: "TerryMedia", code: 4, userInfo: [NSLocalizedDescriptionKey: "Os clipes estão vazios"])
     }
 
-    var mixParams: [AVMutableAudioMixInputParameters] = [audioParams]
+    // Todos os clipes sem som: tira a trilha vazia para a exportação não falhar.
+    var mixParams: [AVMutableAudioMixInputParameters] = []
+    if audioTrack.segments.isEmpty {
+      composition.removeTrack(audioTrack)
+    } else {
+      mixParams.append(audioParams)
+    }
 
     // Narração gravada por cima da prévia.
     if let narration = spec["narration"] as? [String: Any], let nUri = narration["uri"] as? String {
