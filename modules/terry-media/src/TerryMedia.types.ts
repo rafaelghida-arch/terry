@@ -40,10 +40,11 @@ export type NativeExportSpec = {
   width: number;
   height: number;
   fps: number;
-  segments: { uri: string; start: number; end: number; crop: NativeCrop; volume: number; hasAudio: boolean }[];
+  segments: { uri: string; start: number; end: number; crop: NativeCrop; volume: number; hasAudio: boolean; zoom?: { from: number; to: number } }[];
   narration?: { uri: string; volume: number; duration: number };
+  music?: { uri: string; volume: number };
   /** Legendas já no tempo do vídeo montado (só quando o criador ativou). */
-  captions?: { cues: { start: number; end: number; text: string }[]; style: 'faixa' | 'contorno'; position: 'baixo' | 'meio' };
+  captions?: { cues: { start: number; end: number; text: string }[]; style: 'faixa' | 'contorno'; position: 'baixo' | 'meio'; color: string };
 };
 
 export type ExportResult = { uri: string; duration: number };
@@ -51,3 +52,10 @@ export type ExportResult = { uri: string; duration: number };
 export type TerryMediaEvents = {
   onExportProgress: (event: { progress: number }) => void;
 };
+
+export type TranscribeResult =
+  | { available: true; timed: true; words: { text: string; start: number; end: number }[]; reason?: string }
+  | { available: true; timed: false; text: string }
+  | { available: false; reason: string };
+
+export type PixelsResult = { size: number; pixels: number[] };

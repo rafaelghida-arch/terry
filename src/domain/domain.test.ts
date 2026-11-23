@@ -240,3 +240,96 @@ test('gêneros: o roteiro muda com o tipo de conteúdo e respeita as regras', ()
   // tutorial não vira roteiro de comida
   assert.ok(!/mordida|chapa|xis/.test(JSON.stringify(generateHooksLocal(ctx('tutorial', 0.3)))));
 });
+
+import { captionPalette, fromHex, rgbToHsl } from './palette';
+import { combineLook, lookDefaults, zoomFor } from './look';
+import { structureFromMetrics } from './style';
+
+test('estrutura: o roteiro segue os planos da referência (quantidade, fala e duração)', () => {
+  // referência de 12 s: 2 planos sem fala, depois 3 com fala, 1 sem
+  const structure = [
+    { duration: 2, voice: false }, { duration: 1.5, voice: false }, { duration: 3, voice: true },
+    { duration: 2, voice: true }, { duration: 2, voice: true }, { duration: 1.5, voice: false },
+  ];
+  const ctx = { brief: GENRE_INFO.review.example, features: defaultFeatures(), targetDuration: 15 as const, audioModes: ['fala' as const], genre: 'review' as const, structure };
+  const [h] = generateHooksLocal(ctx);
+  assert.equal(h.scenes.length, 8); // 6 planos em 12 s → 8 em 15 s
+  assert.match(h.why, /Segue a referência: 6 planos/);
+  // abre sem fala, como a referência
+  assert.ok(!h.scenes[0].line && !/^Fala pra câmera/.test(h.scenes[0].audio), h.scenes[0].audio);
+  const total = h.scenes.reduce((a, s) => a + s.duration, 0);
+  assert.ok(total >= 13 && total <= 17, String(total));
+  // referência que abre falando muda o gancho
+  const talkFirst = generateHooksLocal({ ...ctx, structure: [{ duration: 3, voice: true }, ...structure.slice(1)] });
+  assert.ok(talkFirst[0].scenes[0].line, 'abre com fala');
+  // comida também segue a estrutura
+  const food = generateHooksLocal({ ...ctx, brief: BRIEF, genre: 'gastronomia' });
+  assert.equal(food[0].scenes.length, 8);
+});
+
+test('estrutura: planos-relâmpago (< 0,6 s) se juntam ao anterior', () => {
+  const m = refWith(false, 'r').metrics!;
+  const st = structureFromMetrics({ ...m, shots: [{ start: 0, end: 2, voice: false }, { start: 2, end: 2.3, voice: true }, { start: 2.3, end: 5, voice: true }] });
+  assert.equal(st.length, 2);
+  assert.equal(st[0].voice, true);
+});
+
+test('paleta: tira cores vivas e diferentes do vídeo, legíveis como texto', () => {
+  const px: number[] = [];
+  for (let i = 0; i < 400; i++) px.push(0x101010); // fundo escuro
+  for (let i = 0; i < 200; i++) px.push(0xe8501a); // laranja
+  for (let i = 0; i < 150; i++) px.push(0x1aa0e8); // azul
+  for (let i = 0; i < 120; i++) px.push(0xe8d21a); // amarelo
+  for (let i = 0; i < 300; i++) px.push(0x808080); // cinza
+  const pal = captionPalette(px);
+  assert.equal(pal.length, 3);
+  const hues = pal.map((h) => rgbToHsl(fromHex(h))[0]);
+  assert.ok(hues.some((h) => h < 0.08), 'laranja');
+  assert.ok(hues.some((h) => h > 0.5 && h < 0.62), 'azul');
+  assert.ok(pal.every((h) => rgbToHsl(fromHex(h))[2] >= 0.6), 'claras o bastante');
+});
+
+test('visual das referências: só liga o que elas mostram', () => {
+  const none = lookDefaults({ edit: { originalVolume: 1, narrationVolume: 1 } }, combineLook([{ usesMusic: false }, {}], []));
+  assert.equal(none.captions.enabled, false);
+  assert.equal(none.zoom, 'off');
+  assert.equal(none.musicSuggested, false);
+  const look = combineLook([{ hasCaptions: true, captionColor: '#ffd400', usesZoom: true, zoomStyle: 'punch', usesMusic: true }, { hasCaptions: true, usesZoom: true, zoomStyle: 'punch', usesMusic: true }], ['#FF8800']);
+  const d = lookDefaults({ edit: { originalVolume: 1, narrationVolume: 1 } }, look);
+  assert.equal(d.captions.enabled, true);
+  assert.equal(d.captions.color, '#FFD400');
+  assert.equal(d.zoom, 'punch');
+  assert.equal(d.musicSuggested, true);
+  // o que o criador escolheu prevalece
+  const mine = lookDefaults({ captions: { enabled: false, style: 'faixa', position: 'meio' }, edit: { originalVolume: 1, narrationVolume: 1, zoom: 'off' } }, look);
+  assert.equal(mine.captions.enabled, false);
+  assert.equal(mine.zoom, 'off');
+  assert.deepEqual(zoomFor(1, 'punch'), { from: 1.15, to: 1.15 });
+  assert.equal(zoomFor(0, 'punch'), undefined);
+});
+
+import { cuesFromText, cuesFromWords, voicedSpans } from './captions';
+test('legendas da transcrição: quebra em pausas e só dentro do trecho usado', () => {
+  const w = (text: string, start: number) => ({ text, start, end: start + 0.3 });
+  const words = [w('Gente,', 1), w('olha', 1.35), w('o', 1.7), w('tamanho', 2.05), w('disso.', 2.4), w('Sério', 4), w('mesmo', 4.35)];
+  const cues = cuesFromWords(words, { start: 0, end: 5 });
+  assert.deepEqual(cues.map((c) => c.text), ['Gente, olha o tamanho disso.', 'Sério mesmo']);
+  assert.ok(cuesFromWords(words, { start: 3, end: 5 }).every((c) => c.start >= 3));
+  const spans = voicedSpans(['silencio', 'voz', 'voz', 'voz', 'silencio', 'silencio', 'silencio', 'silencio', 'silencio', 'silencio', 'voz', 'voz'], 0.5);
+  assert.equal(spans.length, 2);
+  const fromText = cuesFromText('um dois três quatro', spans, { start: 0, end: 6 });
+  assert.ok(fromText[0].start >= 0.5 && fromText.at(-1)!.end <= 6);
+});
+
+import { descriptionFromBrief, localPublishIdea } from './publish';
+test('publicação: 3 hashtags do nicho, título e descrição só com os fatos do briefing', () => {
+  const food = localPublishIdea({ brief: BRIEF, title: 'Xis de costela · Porto Alegre', genre: 'gastronomia' });
+  assert.equal(food.hashtags.length, 3);
+  assert.ok(food.hashtags.every((h) => h.startsWith('#') && !/fyp|viral/.test(h)));
+  assert.equal(food.title, 'Xis de costela de R$ 38 em Porto Alegre');
+  assert.equal(food.description, 'Provei um xis de costela de R$ 38 em Porto Alegre.');
+  const rv = localPublishIdea({ brief: GENRE_INFO.review.example, title: 'Fone bluetooth', genre: 'review' });
+  assert.equal(rv.title, 'Fone bluetooth: vale a pena?');
+  assert.equal(descriptionFromBrief(GENRE_INFO.review.example), 'Review de um fone bluetooth de R$ 150.');
+  assert.ok(rv.sound.search.length > 3);
+});

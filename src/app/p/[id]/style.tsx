@@ -123,10 +123,10 @@ export default function Style() {
             {terry.genreMismatch(p) && a.genre ? (
               <View style={{ gap: 10 }}>
                 <TerryLine text={terry.genreMismatch(p)} />
-                <View style={{ flexDirection: 'row', gap: 8 }}>
+                {p.genre === 'outro' ? null : <View style={{ flexDirection: 'row', gap: 8 }}>
                   <Button small style={{ flex: 1 }} label={`Seguir: ${GENRE_INFO[a.genre.detected].short}`} onPress={() => setGenre(p.id, a.genre!.detected)} />
                   <Button small kind="secondary" style={{ flex: 1 }} label={`Manter: ${GENRE_INFO[p.genre ?? 'gastronomia'].short}`} onPress={() => updateProject(p.id, (cur) => (cur.analysis ? { ...cur, analysis: { ...cur.analysis, genre: { ...cur.analysis.genre!, detected: cur.genre ?? 'gastronomia' } } } : cur))} />
-                </View>
+                </View>}
               </View>
             ) : null}
 

@@ -2,12 +2,14 @@
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { Directory, File } from 'expo-file-system';
 import TerryMedia from '../../modules/terry-media';
-import type { Clip, MediaInfo, Project, Reference } from '../domain/types';
-import { timelineCaptions } from '../domain/captions';
-import { metricsFromRaw, cutsFromDiffs, type RawAnalysis } from '../domain/style';
-import { buildExportSpec, DEFAULT_FRAMING } from '../domain/timeline';
+import type { CaptionCue, Clip, MediaInfo, Project, Reference } from '../domain/types';
+import { cuesFromText, cuesFromWords, timelineCaptions, voicedSpans } from '../domain/captions';
+import { captionPalette } from '../domain/palette';
+import { classifyAudio, metricsFromRaw, cutsFromDiffs, type RawAnalysis } from '../domain/style';
+import { buildExportSpec, clipRange, DEFAULT_FRAMING } from '../domain/timeline';
 import { importFile, mediaDir } from '../storage/projects';
 import { newId } from '../domain/scriptLocal';
+import { resolveMusicUri } from './tracks';
 
 const extOf = (uri: string) => (/\.(mov|qt)(\?|$)/i.test(uri) ? 'mov' : /\.m4v(\?|$)/i.test(uri) ? 'm4v' : 'mp4');
 
@@ -142,12 +144,53 @@ export async function exportProject(project: Project): Promise<{ uri: string; du
   const spec = buildExportSpec(project, out);
   if (project.captions?.enabled) {
     const cues = timelineCaptions(project).map(({ start, end, text }) => ({ start, end, text }));
-    if (cues.length) spec.captions = { cues, style: project.captions.style, position: project.captions.position };
+    if (cues.length) spec.captions = { cues, style: project.captions.style, position: project.captions.position, color: project.captions.color ?? '#FFFFFF' };
   }
   if (!spec.segments.length) throw new Error('Nenhum clipe gravado ainda.');
+  if (spec.music) {
+    const uri = await resolveMusicUri(project.edit.music);
+    spec.music = uri ? { ...spec.music, uri } : undefined;
+  }
   return native().exportComposition(spec);
 }
 
 export function cancelExport() {
   TerryMedia?.cancelExport();
+}
+
+/** Até 3 cores do vídeo (para a legenda). */
+export async function paletteOf(uri: string): Promise<string[]> {
+  try {
+    const r = await native().framePixels(uri, 6, 24);
+    return captionPalette(r.pixels);
+  } catch {
+    return [];
+  }
+}
+
+export type Transcription = { cues: CaptionCue[]; ok: boolean; reason?: string };
+
+/**
+ * Transcreve a fala de um clipe no próprio aparelho e devolve legendas no tempo do arquivo.
+ * iOS traz o tempo de cada palavra; Android traz o texto e o TERRY encaixa nos trechos com voz.
+ */
+export async function transcribeClip(projectId: string, clip: Clip): Promise<Transcription> {
+  const range = clipRange(clip);
+  try {
+    const r = await native().transcribe(clip.uri, 'pt-BR');
+    if (!r.available) return { cues: [], ok: false, reason: r.reason };
+    if (r.timed) return { cues: cuesFromWords(r.words, range), ok: true };
+    if (!r.text.trim()) return { cues: [], ok: true };
+    const raw = await native().analyzeVideo(clip.uri, {
+      sampleFps: 1,
+      frameCount: 1,
+      frameMaxSize: 64,
+      outputDir: new Directory(mediaDir(projectId, 'frames'), 'stt').uri,
+      audioWindow: 0.1,
+    });
+    const { labels } = classifyAudio(raw.rmsDb, raw.zcr, raw.audioWindow);
+    return { cues: cuesFromText(r.text, voicedSpans(labels, raw.audioWindow), range), ok: true };
+  } catch (e) {
+    return { cues: [], ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
 }

@@ -126,9 +126,37 @@ Cada gênero tem seus ganchos, tomadas, dicas de gravação e regras de conteúd
 
 O gênero vem do briefing: o TERRY sugere um enquanto você digita, e você pode trocar. Com a IA ligada, ele também lê o gênero das referências e avisa quando elas parecem de outro tipo.
 
+## Roteiro que segue as referências
+
+O roteiro espelha a referência principal, plano a plano. O TERRY mede no aparelho quantos planos ela tem, quanto dura cada um e em quais há fala, e o roteiro sai com o mesmo número de tomadas (na proporção da duração escolhida), a fala nos mesmos lugares e a mesma abertura. Os modelos de cada gênero só preenchem o conteúdo de cada tomada, e o cartão do gancho mostra de onde veio (“Segue a referência: 6 planos de ~2 s, 3 com fala, abrindo sem fala.”). Com a IA ligada, ela também descreve o enquadramento e a função de cada plano, e o roteiro segue isso.
+
+Em **Outro**, o TERRY não força um gênero: usa o que as referências mostram.
+
+## Editor: só o que as referências têm
+
+Na primeira montagem, o editor começa com o visual das referências e nada além disso:
+
+- **Legenda:** só vem ligada se as referências têm legenda, na mesma cor e posição.
+- **Zoom:** só entra se as referências usam zoom, no mesmo estilo (aproximação suave ou corte mais perto).
+- **Trilha:** nunca entra sozinha. O vídeo sai com o som real. Dá para escolher uma das três trilhas originais do app (compostas para o TERRY, sem direitos de terceiros) ou uma música do celular, e tirar com “Sem trilha”.
+
+Sem referência que justifique, o corte sai limpo, sem efeitos.
+
 ## Legendas
 
-As legendas são opcionais: no editor, toque em **Legendas** e depois em **Mostrar legendas**. O rascunho sai das falas do roteiro, posicionado onde a voz entra no clipe. Toque no texto para corrigir com o que você falou de verdade, apague o que não quiser e acrescente falas no ponto atual da prévia. Há dois estilos, faixa ou contorno, e duas posições, embaixo ou no meio. As legendas ficam presas ao clipe, então continuam no lugar certo quando você apara ou reordena. Elas aparecem na prévia e saem gravadas no MP4: no iOS por camadas de texto do AVFoundation, no Android por uma sobreposição própria do Media3.
+Em **Legendas → Mostrar legendas**, o TERRY ouve **todos os takes** e transcreve a fala no próprio aparelho: reconhecimento de fala da Apple no iOS, reconhecedor do sistema no Android 13+. Quando não dá para transcrever, usa a fala do roteiro. Takes sem fala aparecem na lista para você escrever.
+
+A lista é organizada por take. Toque no texto para corrigir. Cor: branco ou até 3 cores tiradas dos seus vídeos. Estilo: contorno ou faixa. Posição: embaixo ou no meio. O mesmo estilo vale para todos os takes. As legendas aparecem na prévia e saem gravadas no MP4.
+
+## Pra postar
+
+Na exportação, o TERRY sugere:
+
+- 3 hashtags conhecidas do nicho (sem #fyp nem #viral);
+- um título e uma descrição feitos só com os fatos do briefing;
+- uma recomendação de trilha para colocar na hora de publicar, com o tipo de som e o termo para buscar nos sons do TikTok ou do Instagram.
+
+Tudo pode ser copiado. Ele não cita músicas “em alta”, porque isso muda toda semana.
 
 ## Como funciona
 
@@ -198,4 +226,4 @@ npm --prefix server test
 - **Importação por link** (URL do TikTok) não foi implementada. O fluxo principal usa arquivos salvos na galeria, como pedido.
 - **Transcrição** não é feita. A análise de áudio usa o envelope de volume e a taxa de cruzamentos por zero, que é uma estimativa (fala × chiado). Com a IA ligada, os quadros confirmam rosto e comida.
 - **Prévia do editor:** troca de clipe num único player, então pode haver uma pausa curta entre cortes na prévia. O MP4 exportado não tem essa pausa.
-- **Legendas** partem das falas do roteiro, não de transcrição automática do áudio: o criador corrige o texto. Transcrever a fala no próprio aparelho é o próximo passo natural.
+- **Transcrição:** depende do reconhecedor de fala do aparelho. No Android, precisa do Android 13 ou mais novo e de um serviço de reconhecimento que aceite arquivo de áudio. Sem isso, as legendas vêm do roteiro e você corrige. No simulador não há transcrição.

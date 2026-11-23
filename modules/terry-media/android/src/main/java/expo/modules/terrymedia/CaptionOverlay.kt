@@ -30,6 +30,7 @@ class CaptionOverlay(
   private val style: String,
   private val position: String,
   private val frameWidth: Int,
+  private val textColor: Int = Color.WHITE,
 ) : BitmapOverlay() {
   private val empty: Bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
   private val cache = HashMap<Int, Bitmap>()
@@ -56,7 +57,7 @@ class CaptionOverlay(
   private fun draw(text: String): Bitmap {
     val fontSize = frameWidth * 0.054f
     val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-      color = Color.WHITE
+      color = textColor
       textSize = fontSize
       typeface = Typeface.create(Typeface.DEFAULT, 900, false)
     }

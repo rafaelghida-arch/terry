@@ -1,3 +1,4 @@
+import { zoomFor } from './look';
 import type { Clip, CropRect, Framing, Project, Scene } from './types';
 
 export const OUTPUT = { width: 1080, height: 1920, fps: 30 } as const;
@@ -139,21 +140,23 @@ export type ExportSpec = {
   width: number;
   height: number;
   fps: number;
-  segments: { uri: string; start: number; end: number; crop: CropRect; volume: number; hasAudio: boolean }[];
+  segments: { uri: string; start: number; end: number; crop: CropRect; volume: number; hasAudio: boolean; zoom?: { from: number; to: number } }[];
   narration?: { uri: string; volume: number; duration: number };
   /** Legendas já no tempo do vídeo montado (só quando o criador ativou). */
-  captions?: { cues: { start: number; end: number; text: string }[]; style: 'faixa' | 'contorno'; position: 'baixo' | 'meio' };
+  captions?: { cues: { start: number; end: number; text: string }[]; style: 'faixa' | 'contorno'; position: 'baixo' | 'meio'; color: string };
+  music?: { uri: string; volume: number };
 };
 
 export function buildExportSpec(project: Project, outputPath: string): ExportSpec {
   const tl = buildTimeline(project);
-  const segments = tl.segments.map((s) => ({
+  const segments = tl.segments.map((s, i) => ({
     uri: s.clip.uri,
     start: s.start,
     end: s.end,
     crop: cropRectFor(s.clip.width, s.clip.height, s.clip.framing),
     volume: clamp(project.edit.originalVolume, 0, 1),
     hasAudio: s.clip.hasAudio,
+    zoom: zoomFor(i, project.edit.zoom),
   }));
   const narration = project.edit.narration && project.audioModes.includes('narracao')
     ? {
@@ -162,7 +165,8 @@ export function buildExportSpec(project: Project, outputPath: string): ExportSpe
         duration: Math.min(project.edit.narration.duration, tl.total),
       }
     : undefined;
-  return { outputPath, ...OUTPUT, segments, narration };
+  const music = project.edit.music ? { uri: project.edit.music.uri, volume: clamp(project.edit.music.volume, 0, 1) } : undefined;
+  return { outputPath, ...OUTPUT, segments, narration, music };
 }
 
 /** Inverso de cropRectFor: posição do retângulo → deslocamento -1..1. */

@@ -12,9 +12,10 @@ export type Genre =
   | 'tutorial'
   | 'vlog'
   | 'fitness'
-  | 'humor';
+  | 'humor'
+  | 'outro';
 
-export const GENRES: Genre[] = ['gastronomia', 'beleza', 'review', 'marketing', 'opiniao', 'tutorial', 'vlog', 'fitness', 'humor'];
+export const GENRES: Genre[] = ['gastronomia', 'beleza', 'review', 'marketing', 'opiniao', 'tutorial', 'vlog', 'fitness', 'humor', 'outro'];
 
 export type GenreInfo = {
   label: string;
@@ -113,7 +114,23 @@ export const GENRE_INFO: Record<Genre, GenreInfo> = {
     rules: 'A piada e as falas são do criador; o TERRY organiza o tempo. Ritmo rápido, virada no fim. Nada de piada com grupos ou pessoas reais.',
     start: 'Me mostra uns vídeos de humor com o timing que você gosta.',
   },
+  outro: {
+    label: 'Outro',
+    short: 'Outro',
+    keywords: /(?!)/, // nunca é detectado pelo briefing: é escolha do criador
+    fallbackSubject: 'assunto',
+    example: 'Conta o que você vai gravar, do seu jeito. Eu sigo o estilo dos vídeos que você me mostrar.',
+    rules: 'O tipo de conteúdo vem das referências. Fatos só do briefing. Opiniões e reações são do criador, nunca escritas.',
+    start: 'Me mostra uns vídeos que têm a sua cara. Eu sigo o estilo deles.',
+  },
 };
+
+/** Gênero que o roteiro usa: em "Outro", o que as referências mostram (quando a IA identificou). */
+export function effectiveGenre(chosen: Genre | undefined, detected?: Genre): Genre {
+  const g = chosen ?? 'gastronomia';
+  if (g === 'outro' && detected && detected !== 'outro') return detected;
+  return g;
+}
 
 /** Gênero mais provável pelo briefing. */
 export function detectGenre(brief: string): { genre: Genre; confident: boolean } {
@@ -121,7 +138,7 @@ export function detectGenre(brief: string): { genre: Genre; confident: boolean }
     const re = new RegExp(GENRE_INFO[g].keywords.source, 'gi');
     return { g, n: (brief.match(re) ?? []).length };
   }).sort((a, b) => b.n - a.n);
-  if (!scores[0].n) return { genre: 'gastronomia', confident: false };
+  if (!scores[0].n) return { genre: 'outro', confident: false };
   return { genre: scores[0].g, confident: scores[0].n > (scores[1]?.n ?? 0) };
 }
 
@@ -357,6 +374,29 @@ export const PLANS: Record<Exclude<Genre, 'gastronomia'>, GenrePlan> = {
       T({ role: 'passo', duration: 5, audio: 'fala', title: () => 'Exercício 3', instruction: () => 'Mesmo enquadramento, duas repetições inteiras.', line: () => 'Nome e repetições.' }),
     ],
     ending: T({ role: 'fechamento', duration: 3, audio: 'reacao', title: () => 'Fim do treino', instruction: () => 'Você logo depois de terminar, falando como foi.', tip: 'A respiração real vale mais que frase pronta.' }),
+  },
+
+  outro: {
+    recordTip: 'Segura o celular firme e grava um pouco antes e depois de cada tomada. Eu corto.',
+    hooks: [
+      {
+        key: 'direto', kind: 'fala', title: () => 'Você abrindo direto',
+        approach: 'Abre com você olhando pra câmera e dizendo, em uma frase, do que é o vídeo.',
+        shot: T({ role: 'gancho', duration: 3, audio: 'fala', title: () => 'Uma frase pra câmera', instruction: () => 'Rosto em close, olhando pra lente, sem introdução.', line: () => 'Uma frase dizendo do que é o vídeo.', tip: 'Começa a falar já olhando pra lente.' }),
+      },
+      {
+        key: 'imagem', kind: 'visual', title: () => 'Abrir pela imagem mais forte',
+        approach: 'Abre com a imagem mais interessante do vídeo, sem fala.',
+        shot: T({ role: 'gancho', duration: 3, audio: 'som', title: (c) => `${cap(c.subject)} em destaque`, instruction: (c) => `Close ${c.s.no} ${c.subject}, câmera parada ou se aproximando devagar.` }),
+      },
+    ],
+    body: [
+      T({ role: 'contexto', duration: 4, audio: 'fala', title: () => 'Contexto', instruction: () => 'Mostra onde você está e o que está acontecendo.', line: () => 'Explica o contexto em uma ou duas frases.' }),
+      T({ role: 'demonstracao', duration: 5, audio: 'fala', title: () => 'O momento principal', instruction: (c) => `Mostra ${o(c)} de perto, o momento que dá sentido ao vídeo.`, line: () => 'Comenta o que está acontecendo.' }),
+      T({ role: 'detalhe', duration: 2, audio: 'som', title: () => 'Detalhes', instruction: () => 'Dois ou três closes curtos de detalhes.' }),
+      T({ role: 'reacao', duration: 4, audio: 'reacao', title: () => 'Sua reação', instruction: () => 'Fala pra câmera o que achou, na hora.' }),
+    ],
+    ending: T({ role: 'fechamento', duration: 3, audio: 'reacao', title: () => 'Fechamento', instruction: () => 'Uma frase final sua, olhando pra câmera.', tip: 'Termina seco, sem despedida longa.' }),
   },
 
   humor: {

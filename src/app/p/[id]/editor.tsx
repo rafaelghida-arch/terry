@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { VideoView } from 'expo-video';
+import { VideoView, type VideoPlayer } from 'expo-video';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 import { useScreen } from '../../../ui/simulator';
@@ -10,9 +10,13 @@ import { updateClip } from '../../../services/flows';
 import { keepNarration } from '../../../services/media';
 import { removeFile } from '../../../storage/projects';
 import { updateProject, useProject } from '../../../state/store';
-import { AudioSheet, CaptionPreview, CaptionsSheet, FramingSheet, NarrationSheet } from '../../../ui/EditorSheets';
+import * as DocumentPicker from 'expo-document-picker';
+import { AudioSheet, CaptionPreview, CaptionsSheet, FramingSheet, NarrationSheet, ZoomSheet, type CaptionGroup } from '../../../ui/EditorSheets';
+import { lookOf, zoomAt, zoomFor, type ZoomMode } from '../../../domain/look';
+import { TRACKS, resolveMusicUri } from '../../../services/tracks';
+import { paletteOf } from '../../../services/media';
 import { cueAt, DEFAULT_CAPTIONS, timelineCaptions } from '../../../domain/captions';
-import { addCueAt, deleteCue, enableCaptions, updateCaptionSettings, updateCue } from '../../../services/flows';
+import { addCueAt, applyReferenceLook, deleteCue, enableCaptions, updateCaptionSettings, updateCue, type CaptionReport } from '../../../services/flows';
 import { Icon } from '../../../ui/icons';
 import { Button, Screen, TerryLine, Thumb, ToolButton, TopBar } from '../../../ui/kit';
 import { C, R, T } from '../../../ui/theme';
@@ -22,12 +26,12 @@ import { useTimelinePlayer } from '../../../ui/useTimelinePlayer';
 const PX_PER_SEC = 26;
 
 /** Mostra o vídeo exatamente com o recorte que vai para o MP4. */
-function CroppedPreview({ clip, player, width, height }: { clip?: Clip; player: ReturnType<typeof useTimelinePlayer>['player']; width: number; height: number }) {
+function CroppedLayer({ clip, player, width, height, visible, zoom = 1 }: { clip?: Clip; player: VideoPlayer; width: number; height: number; visible: boolean; zoom?: number }) {
   const crop = clip ? cropRectFor(clip.width, clip.height, clip.framing) : { left: 0, top: 0, width: 1, height: 1 };
   const innerW = width / crop.width;
   const innerH = height / crop.height;
   return (
-    <View style={{ width, height, overflow: 'hidden', backgroundColor: '#000', borderRadius: R.s }}>
+    <View style={[StyleSheet.absoluteFill, { opacity: visible ? 1 : 0, transform: [{ scale: zoom }] }]} pointerEvents="none">
       <VideoView
         player={player}
         nativeControls={false}
@@ -38,12 +42,26 @@ function CroppedPreview({ clip, player, width, height }: { clip?: Clip; player: 
   );
 }
 
+/** Dois players empilhados: o visível toca, o outro espera o próximo take já carregado. */
+function CroppedPreview({ tp, width, height, zoom }: { tp: ReturnType<typeof useTimelinePlayer>; width: number; height: number; zoom: number }) {
+  return (
+    <View style={{ width, height, overflow: 'hidden', backgroundColor: '#000', borderRadius: R.s }}>
+      {tp.players.map((player, i) => (
+        <CroppedLayer key={i} player={player} clip={tp.slotClips[i]} width={width} height={height} visible={tp.active === i} zoom={tp.active === i ? zoom : 1} />
+      ))}
+    </View>
+  );
+}
+
 export default function Editor() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const p = useProject(id);
   const { width: screenW, height: screenH } = useScreen();
-  const [sheet, setSheet] = useState<null | 'trim' | 'frame' | 'audio' | 'narration' | 'captions'>(null);
-  const [captionBusy, setCaptionBusy] = useState(false);
+  const [sheet, setSheet] = useState<null | 'trim' | 'frame' | 'audio' | 'narration' | 'captions' | 'zoom'>(null);
+  const [captionBusy, setCaptionBusy] = useState<string | null>(null);
+  const [captionReport, setCaptionReport] = useState<string | null>(null);
+  const [musicUri, setMusicUri] = useState<string | undefined>();
+  const [clipPalette, setClipPalette] = useState<string[]>([]);
   const [selected, setSelected] = useState(0);
   const [showReview, setShowReview] = useState(true);
   const strip = useRef<ScrollViewInstance>(null);
@@ -52,17 +70,67 @@ export default function Editor() {
   const narrationOn = !!p?.audioModes.includes('narracao');
   const cues = useMemo(() => (p ? timelineCaptions(p) : []), [p]);
   const captionSettings = p?.captions ?? DEFAULT_CAPTIONS;
-  const tp = useTimelinePlayer(timeline, {
-    volume: p?.edit.originalVolume ?? 1,
-    narrationUri: narrationOn ? p?.edit.narration?.uri : undefined,
-    narrationVolume: p?.edit.narrationVolume ?? 1,
-  });
+  const extras = useMemo(() => {
+    const list: { uri: string; volume: number }[] = [];
+    if (narrationOn && p?.edit.narration) list.push({ uri: p.edit.narration.uri, volume: p.edit.narrationVolume });
+    if (musicUri && p?.edit.music) list.push({ uri: musicUri, volume: p.edit.music.volume });
+    return list;
+  }, [narrationOn, p?.edit.narration, p?.edit.narrationVolume, musicUri, p?.edit.music]);
+  const tp = useTimelinePlayer(timeline, { volume: p?.edit.originalVolume ?? 1, extras });
 
   // A faixa acompanha a posição atual.
   useEffect(() => {
     strip.current?.scrollTo({ x: tp.time * PX_PER_SEC, animated: false });
   }, [tp.time]);
   useEffect(() => setSelected(tp.index), [tp.index]);
+
+  const look = lookOf(p?.analysis);
+  const palette = look.palette.length ? look.palette : clipPalette;
+
+  const describe = (r: CaptionReport) => {
+    const parts: string[] = [];
+    if (r.transcribed) parts.push(`Ouvi e transcrevi ${r.transcribed} take${r.transcribed > 1 ? 's' : ''}.`);
+    if (r.fromScript) parts.push(`${r.fromScript} veio da fala do roteiro: confere se foi isso mesmo.`);
+    if (r.empty.length) parts.push(`Sem fala: ${r.empty.join(', ')}. Escreve ali embaixo se quiser.`);
+    if (!r.transcribed && r.unavailable) parts.push(r.unavailable === 'simulador' ? 'No simulador eu não consigo ouvir os clipes; no celular eu transcrevo.' : 'Não consegui transcrever neste aparelho agora.');
+    return parts.join(' ');
+  };
+
+  const runCaptions = async (force: boolean) => {
+    if (!p) return;
+    setCaptionBusy('Ouvindo os takes…');
+    try {
+      const r = await enableCaptions(p.id, force, setCaptionBusy);
+      setCaptionReport(describe(r));
+    } finally {
+      setCaptionBusy(null);
+    }
+  };
+
+  // Primeira montagem: começa com o visual das referências (legenda, zoom, trilha) — só o que elas têm.
+  useEffect(() => {
+    if (!p) return;
+    const { captionsOn } = applyReferenceLook(p.id);
+    if (captionsOn) runCaptions(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p?.id]);
+
+  // Trilha: resolve o arquivo (as embutidas saem de dentro do app).
+  useEffect(() => {
+    let alive = true;
+    resolveMusicUri(p?.edit.music).then((u) => alive && setMusicUri(u));
+    return () => {
+      alive = false;
+    };
+  }, [p?.edit.music?.id, p?.edit.music?.uri]);
+
+  // Sem referências (ex.: demonstração), as cores da legenda saem dos próprios clipes.
+  const firstClipUri = timeline.segments[0]?.clip.uri;
+  useEffect(() => {
+    if (look.palette.length || !firstClipUri) return;
+    paletteOf(firstClipUri).then(setClipPalette);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstClipUri, look.palette.length]);
 
   if (!p) return null;
 
@@ -72,6 +140,23 @@ export default function Editor() {
   const segClip = seg?.clip;
 
   const close = () => setSheet(null);
+  const zoomMode: ZoomMode = p.edit.zoom ?? 'off';
+  const curSeg = timeline.segments[tp.index];
+  const zoomNow = curSeg ? zoomAt(zoomFor(tp.index, zoomMode), (tp.time - curSeg.offset) / Math.max(0.1, curSeg.duration)) : 1;
+  const groups: CaptionGroup[] = timeline.segments.map((sg) => ({
+    key: sg.sceneId,
+    title: p.scenes[sg.sceneIndex]?.title ?? 'Take',
+    offset: sg.offset,
+    cues: cues.filter((c) => c.clipId === sg.clip.id && c.start >= sg.offset - 0.01 && c.start < sg.offset + sg.duration),
+  }));
+
+  const pickOwnMusic = async () => {
+    const r = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true });
+    if (r.canceled || !r.assets[0]) return;
+    const kept = await keepNarration(p.id, r.assets[0].uri);
+    const title = r.assets[0].name.replace(/\.[^.]+$/, '').slice(0, 24);
+    updateProject(p.id, (cur) => ({ ...cur, edit: { ...cur.edit, music: { id: 'proprio', title, uri: kept, volume: cur.edit.music?.volume ?? 0.25 } } }));
+  };
 
   return (
     <Screen>
@@ -92,7 +177,7 @@ export default function Editor() {
 
       <View style={st.previewArea}>
         <View>
-          <CroppedPreview clip={timeline.segments[tp.index]?.clip} player={tp.player} width={previewW} height={previewH} />
+          <CroppedPreview tp={tp} width={previewW} height={previewH} zoom={zoomNow} />
           <CaptionPreview text={cueAt(cues, tp.time)?.text} settings={captionSettings} width={previewW} height={previewH} />
         </View>
       </View>
@@ -159,9 +244,10 @@ export default function Editor() {
 
       <View style={{ flex: 1 }} />
 
-      <View style={st.toolbar}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.toolbar} contentContainerStyle={st.toolbarInner}>
         <ToolButton label="Aparar" icon={<Icon.Trim />} onPress={() => { tp.pause(); setSheet('trim'); }} disabled={!segClip} />
         <ToolButton label="Enquadrar" icon={<Icon.Frame />} onPress={() => { tp.pause(); setSheet('frame'); }} disabled={!segClip} />
+        <ToolButton label="Zoom" icon={<Icon.Zoom />} active={zoomMode !== 'off'} onPress={() => setSheet('zoom')} />
         <ToolButton label="Legendas" icon={<Icon.Captions />} active={captionSettings.enabled} onPress={() => { tp.pause(); setSheet('captions'); }} />
         <ToolButton label="Áudio" icon={<Icon.Audio />} onPress={() => setSheet('audio')} />
         {narrationOn ? <ToolButton label="Narração" icon={<Icon.Mic />} onPress={() => { tp.pause(); setSheet('narration'); }} /> : null}
@@ -175,28 +261,23 @@ export default function Editor() {
             router.push(`/p/${p.id}/script`);
           }}
         />
-      </View>
+      </ScrollView>
 
       <CaptionsSheet
         visible={sheet === 'captions'}
         onClose={close}
         settings={captionSettings}
-        cues={cues}
+        groups={groups}
+        palette={palette}
         time={tp.time}
         busy={captionBusy}
-        onToggle={async (on) => {
-          if (!on) return updateCaptionSettings(p.id, { enabled: false });
-          setCaptionBusy(true);
-          try {
-            await enableCaptions(p.id);
-          } finally {
-            setCaptionBusy(false);
-          }
-        }}
+        report={captionReport}
+        onToggle={(on) => (on ? runCaptions(false) : updateCaptionSettings(p.id, { enabled: false }))}
+        onRetranscribe={() => runCaptions(true)}
         onSettings={(patch) => updateCaptionSettings(p.id, patch)}
         onEdit={(c, text) => updateCue(p.id, c.clipId, c.cueId, { text })}
         onDelete={(c) => deleteCue(p.id, c.clipId, c.cueId)}
-        onAdd={() => addCueAt(p.id, tp.time)}
+        onAddAt={(t) => addCueAt(p.id, t)}
         onSeek={(t) => tp.seek(t)}
       />
       <TrimSheet
@@ -217,6 +298,23 @@ export default function Editor() {
         hasNarration={narrationOn && !!p.edit.narration}
         onOriginal={(v) => updateProject(p.id, (cur) => ({ ...cur, edit: { ...cur.edit, originalVolume: v } }))}
         onNarration={(v) => updateProject(p.id, (cur) => ({ ...cur, edit: { ...cur.edit, narrationVolume: v } }))}
+        music={p.edit.music}
+        suggestMusic={look.music}
+        onMusic={(id) =>
+          updateProject(p.id, (cur) => {
+            const t = TRACKS.find((x) => x.id === id);
+            return { ...cur, edit: { ...cur.edit, music: t ? { id: t.id, title: t.title, uri: '', volume: cur.edit.music?.volume ?? 0.25 } : undefined } };
+          })
+        }
+        onMusicVolume={(v) => updateProject(p.id, (cur) => (cur.edit.music ? { ...cur, edit: { ...cur.edit, music: { ...cur.edit.music, volume: v } } } : cur))}
+        onPickOwn={pickOwnMusic}
+      />
+      <ZoomSheet
+        visible={sheet === 'zoom'}
+        onClose={close}
+        mode={zoomMode}
+        suggested={look.zoom}
+        onMode={(m) => updateProject(p.id, (cur) => ({ ...cur, edit: { ...cur.edit, zoom: m } }))}
       />
       <NarrationSheet
         visible={sheet === 'narration'}
@@ -257,5 +355,6 @@ const st = StyleSheet.create({
   segmentSel: { borderColor: C.accent },
   playhead: { position: 'absolute', top: 0, bottom: 0, width: 2, backgroundColor: C.accent, borderRadius: 1, alignItems: 'center' },
   playKnob: { position: 'absolute', top: -5, width: 10, height: 10, borderRadius: 5, backgroundColor: C.accent },
-  toolbar: { flexDirection: 'row', justifyContent: 'space-around', marginHorizontal: 12, marginBottom: 8, paddingVertical: 8, paddingHorizontal: 4, borderRadius: R.xl, backgroundColor: C.surface2 },
+  toolbarInner: { paddingHorizontal: 4, alignItems: 'center' },
+  toolbar: { flexGrow: 0, marginHorizontal: 12, marginBottom: 8, paddingVertical: 8, borderRadius: R.xl, backgroundColor: C.surface2 },
 });

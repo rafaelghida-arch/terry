@@ -86,6 +86,9 @@ export const Icon = {
   More: ({ size, color = C.text }: P) => (
     <S size={size}><Circle cx={5.5} cy={12} r={1.6} fill={color} /><Circle cx={12} cy={12} r={1.6} fill={color} /><Circle cx={18.5} cy={12} r={1.6} fill={color} /></S>
   ),
+  Zoom: ({ size, color }: P) => (
+    <S size={size}><Circle cx={10.5} cy={10.5} r={6.5} {...st(color)} /><Path d="M15.5 15.5L20 20M8 10.5h5M10.5 8v5" {...st(color)} /></S>
+  ),
   Captions: ({ size, color }: P) => (
     <S size={size}><Rect x={3} y={5} width={18} height={14} rx={3} {...st(color)} /><Path d="M7 12h4M13 12h4M7 15.5h7M16 15.5h1" {...st(color)} /></S>
   ),

@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
-import { ANALYZE_TASK, SCENE_TASK, SCRIPT_TASK, SYSTEM_BASE } from './prompts';
+import { ANALYZE_TASK, PUBLISH_TASK, SCENE_TASK, SCRIPT_TASK, SYSTEM_BASE } from './prompts';
 
 // Regras por gênero (as mesmas do app, em src/domain/genres.ts).
 const GENRE_RULES: Record<string, string> = {
@@ -17,6 +17,7 @@ const GENRE_RULES: Record<string, string> = {
   vlog: 'Lugares e acontecimentos são os do dia real do criador. Planos curtos de passagem, uma fala sincera no meio, fechamento leve.',
   fitness: 'Exercícios, séries e repetições só do briefing. Mostrar a execução inteira de lado. Nada de promessa de resultado ou orientação de saúde que o criador não deu.',
   humor: 'A piada e as falas são do criador; organize o tempo. Ritmo rápido, virada no fim. Nada de piada com grupos ou pessoas reais.',
+  outro: 'O criador não escolheu um gênero: identifique o tipo de conteúdo pelas referências e siga a linguagem delas. Fatos só do briefing.',
 };
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -33,7 +34,7 @@ const Opening = z.enum(['comida', 'preparo', 'rosto', 'pergunta', 'ambiente', 'f
 const Ending = z.enum(['veredito', 'mordida', 'corte_seco', 'chamada']);
 const TalkStyle = z.enum(['fala_camera', 'narracao', 'sem_fala', 'misto']);
 const Role = z.enum(['gancho', 'preparo', 'escala', 'revelacao', 'detalhe', 'mordida', 'reacao', 'fachada', 'contexto', 'fechamento', 'antes', 'demonstracao', 'passo', 'resultado', 'produto', 'prova', 'argumento', 'chamada']);
-const Genre = z.enum(['gastronomia', 'beleza', 'review', 'marketing', 'opiniao', 'tutorial', 'vlog', 'fitness', 'humor']);
+const Genre = z.enum(['gastronomia', 'beleza', 'review', 'marketing', 'opiniao', 'tutorial', 'vlog', 'fitness', 'humor', 'outro']);
 
 const AnalysisSchema = z.object({
   perReference: z.array(
@@ -48,6 +49,13 @@ const AnalysisSchema = z.object({
       talkStyle: TalkStyle,
       genre: Genre,
       summary: z.string(),
+      hasCaptions: z.boolean().nullable(),
+      captionColor: z.string().nullable(),
+      captionPosition: z.enum(['baixo', 'meio', 'topo']).nullable(),
+      usesZoom: z.boolean().nullable(),
+      zoomStyle: z.enum(['suave', 'punch']).nullable(),
+      usesMusic: z.boolean().nullable(),
+      structure: z.array(z.object({ duration: z.number(), voice: z.boolean(), shot: z.string(), beat: z.string(), note: z.string() })),
     }),
   ),
   genre: Genre,
@@ -115,6 +123,25 @@ const ContextIn = z.object({
   features: z.record(z.string(), z.unknown()),
   observations: z.array(z.string()).max(12),
   primaryReference: z.string().nullable().optional(),
+  structure: z
+    .array(z.object({ duration: z.number(), voice: z.boolean(), shot: z.string().optional(), beat: z.string().optional(), note: z.string().optional() }))
+    .max(40)
+    .optional(),
+});
+
+const PublishIn = z.object({
+  brief: z.string().max(2000),
+  genre: Genre.default('outro'),
+  title: z.string().max(200),
+  observations: z.array(z.string()).max(12),
+  references: z.array(z.string()).max(3),
+});
+
+const PublishSchema = z.object({
+  hashtags: z.array(z.string()),
+  title: z.string(),
+  description: z.string(),
+  sound: z.object({ kind: z.string(), search: z.string(), why: z.string() }),
 });
 
 const SceneIn = ContextIn.extend({
@@ -191,6 +218,11 @@ function contextText(c: z.infer<typeof ContextIn>) {
     `Estilo das referências (linguagem): ${JSON.stringify(c.features)}`,
     c.primaryReference ? `Referência principal escolhida pelo criador: ${c.primaryReference}` : '',
     `Observações aprovadas pelo criador:\n- ${c.observations.join('\n- ') || '(nenhuma)'}`,
+    c.structure?.length
+      ? `Estrutura da referência principal, plano a plano (ESPELHE: mesma ordem de planos com e sem fala, mesmos tipos de enquadramento e durações proporcionais à duração alvo):\n${c.structure
+          .map((b, i) => `${i + 1}. ${b.duration.toFixed(1)} s · ${b.voice ? 'com fala' : 'sem fala'}${b.shot ? ` · ${b.shot}` : ''}${b.beat ? ` · ${b.beat}` : ''}${b.note ? ` · ${b.note}` : ''}`)
+          .join('\n')}`
+      : '',
   ].join('\n');
 }
 
@@ -246,7 +278,22 @@ function send(res: ServerResponse, status: number, data: unknown) {
   res.end(JSON.stringify(data));
 }
 
+async function publish(body: unknown) {
+  const input = PublishIn.parse(body);
+  const text = [
+    `Briefing: ${input.brief}`,
+    `Título do projeto: ${input.title}`,
+    `Tipo de conteúdo: ${input.genre}`,
+    `Como são os vídeos de referência: ${input.references.join(' | ') || '(sem referências)'}`,
+    `Observações de estilo: ${input.observations.join(' | ') || '(nenhuma)'}`,
+    PUBLISH_TASK,
+  ].join('\n');
+  const out = await callClaude('publish', PublishSchema, [{ type: 'text', text }], 'low');
+  return { ...out, hashtags: out.hashtags.slice(0, 3).map((h) => (h.startsWith('#') ? h : `#${h}`)), model: MODEL };
+}
+
 const routes: Record<string, (b: unknown) => Promise<unknown>> = {
+  '/v1/publish': publish,
   '/v1/analyze': analyze,
   '/v1/script': script,
   '/v1/scene': scene,

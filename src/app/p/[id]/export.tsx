@@ -3,7 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, ScrollView } from 'react-native';
 import { showDialog } from '../../../ui/dialog';
 import { terry } from '../../../domain/terry';
 import { buildTimeline, formatDuration } from '../../../domain/timeline';
@@ -11,6 +11,7 @@ import { cancelExport, exportProject, isSimulator, makeThumb, onExportProgress }
 import { getProject, updateProject, useProject } from '../../../state/store';
 import { Icon } from '../../../ui/icons';
 import { Button, Footer, ProgressBar, Screen, TerryLine, TopBar } from '../../../ui/kit';
+import { PublishCard } from '../../../ui/PublishCard';
 import { C, R, T } from '../../../ui/theme';
 
 type State = { kind: 'idle' } | { kind: 'running'; progress: number } | { kind: 'done'; uri: string } | { kind: 'error'; message: string };
@@ -64,12 +65,13 @@ export default function Export() {
     return (
       <Screen>
         <TopBar title="Exportar" />
-        <View style={[st.body, { gap: 14 }]}>
+        <ScrollView contentContainerStyle={st.body}>
           <TerryLine text="No celular, é aqui que eu gero o MP4 vertical e você salva na galeria ou compartilha." />
           <Text style={T.small}>
             O simulador não exporta: a montagem do MP4 ({formatDuration(total)}, 1080×1920) usa o módulo nativo do app. Instale o APK no Android para testar.
           </Text>
-        </View>
+          <PublishCard projectId={p.id} />
+        </ScrollView>
         <Footer>
           <Button label="Voltar para o editor" onPress={() => router.back()} />
         </Footer>
@@ -107,7 +109,7 @@ export default function Export() {
           router.back();
         }}
       />
-      <View style={st.body}>
+      <ScrollView contentContainerStyle={st.body}>
         {state.kind === 'running' || state.kind === 'idle' ? (
           <View style={st.center}>
             <Text style={st.percent}>{Math.round((state.kind === 'running' ? state.progress : 0) * 100)}%</Text>
@@ -136,7 +138,9 @@ export default function Export() {
             <Text style={T.small}>Detalhe: {state.message}</Text>
           </View>
         ) : null}
-      </View>
+
+        {state.kind !== 'error' ? <PublishCard projectId={p.id} /> : null}
+      </ScrollView>
 
       <Footer>
         {state.kind === 'running' ? <Button kind="ghost" label="Cancelar" onPress={() => cancelExport()} /> : null}
@@ -153,8 +157,8 @@ export default function Export() {
 }
 
 const st = StyleSheet.create({
-  body: { flex: 1, padding: 16, justifyContent: 'center' },
+  body: { padding: 16, gap: 16, flexGrow: 1 },
   center: { alignItems: 'center', gap: 14 },
   percent: { color: C.text, fontSize: 44, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  video: { height: 420, aspectRatio: 9 / 16, backgroundColor: '#000', borderRadius: R.m, overflow: 'hidden', borderWidth: 1, borderColor: C.border },
+  video: { height: 380, aspectRatio: 9 / 16, backgroundColor: '#000', borderRadius: R.m, overflow: 'hidden', borderWidth: 1, borderColor: C.border },
 });

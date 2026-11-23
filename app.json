@@ -12,7 +12,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "app.terry.mobile",
       "infoPlist": {
-        "UIBackgroundModes": []
+        "UIBackgroundModes": [],
+        "NSSpeechRecognitionUsageDescription": "O TERRY transcreve a sua fala no próprio celular para criar as legendas."
       }
     },
     "android": {

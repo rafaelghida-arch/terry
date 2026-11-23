@@ -41,7 +41,16 @@ export type ReferenceMetrics = {
   ambientShare: number;
   /** Fração do tempo em silêncio. */
   silenceShare: number;
+  /** Cada plano da referência, com ou sem fala (para o roteiro seguir a mesma estrutura). */
+  shots?: { start: number; end: number; voice: boolean }[];
+  /** Som contínuo por baixo do vídeo todo (provável trilha). Estimativa. */
+  musicLikely?: boolean;
+  /** Cores dos quadros (0xRRGGBB reduzidos), para a paleta da legenda. */
+  palette?: string[];
 };
+
+/** Um plano da estrutura que o roteiro espelha. */
+export type StructureBeat = { duration: number; voice: boolean; shot?: string; beat?: string; note?: string };
 
 export type Reference = {
   id: string;
@@ -103,6 +112,11 @@ export type StyleAnalysis = {
   referenceIds: string[];
   /** Gênero que as referências mostram (só com IA). */
   genre?: { detected: Genre; perReference: Record<string, Genre> };
+  /** Legenda, cor, zoom e trilha das referências. */
+  look?: import('./look').RefLook;
+  /** Estrutura plano a plano da referência principal (ou da primeira). */
+  structure?: StructureBeat[];
+  structureByRef?: Record<string, StructureBeat[]>;
 };
 
 export type SceneRole =
@@ -176,6 +190,8 @@ export type CaptionSettings = {
   enabled: boolean;
   style: CaptionStyle;
   position: 'baixo' | 'meio';
+  /** Cor do texto (#RRGGBB). Branco ou uma das cores das referências. */
+  color?: string;
 };
 
 export type ExportRecord = {
@@ -213,7 +229,13 @@ export type Project = {
     originalVolume: number; // 0..1
     narrationVolume: number;
     narration?: { uri: string; duration: number };
+    zoom?: import('./look').ZoomMode;
+    /** O visual das referências já foi aplicado na primeira montagem. */
+    lookApplied?: boolean;
+    music?: { id: string; title: string; uri: string; volume: number };
   };
+  /** Sugestões de publicação geradas na exportação. */
+  publish?: import('./publish').PublishIdea;
   captions?: CaptionSettings;
   lastExport?: ExportRecord;
   coverUri?: string;

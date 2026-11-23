@@ -1,4 +1,5 @@
 import AVFoundation
+import Speech
 import CoreGraphics
 import ExpoModulesCore
 import UIKit
@@ -51,6 +52,25 @@ public class TerryMediaModule: Module {
       }
     }
 
+    // Pixels de alguns quadros reduzidos (0xRRGGBB), para achar as cores do vídeo.
+    AsyncFunction("framePixels") { (uri: String, count: Int, size: Int, promise: Promise) in
+      Task {
+        do {
+          let px = try await TerryMediaModule.framePixels(url: TerryMediaModule.url(from: uri), count: count, size: size)
+          promise.resolve(["size": size, "pixels": px])
+        } catch {
+          promise.reject("ERR_PIXELS", "Não consegui ler as cores do vídeo: \(error.localizedDescription)")
+        }
+      }
+    }
+
+    // Transcreve a fala de um clipe no aparelho (pt-BR). Devolve palavras com tempo.
+    AsyncFunction("transcribe") { (uri: String, language: String, promise: Promise) in
+      TerryMediaModule.transcribe(url: TerryMediaModule.url(from: uri), language: language) { result in
+        promise.resolve(result)
+      }
+    }
+
     Function("cancelExport") {
       self.exportSession?.cancelExport()
     }
@@ -84,6 +104,76 @@ public class TerryMediaModule: Module {
       "height": Double(size.height),
       "hasAudio": !audioTracks.isEmpty,
     ]
+  }
+
+  // MARK: - Cores
+
+  static func framePixels(url: URL, count: Int, size: Int) async throws -> [Int] {
+    let asset = AVURLAsset(url: url)
+    let duration = CMTimeGetSeconds(try await asset.load(.duration))
+    let gen = AVAssetImageGenerator(asset: asset)
+    gen.appliesPreferredTrackTransform = true
+    gen.maximumSize = CGSize(width: size * 4, height: size * 4)
+    var out: [Int] = []
+    let n = max(1, min(count, 12))
+    for i in 0..<n {
+      let t = duration * (Double(i) + 0.5) / Double(n)
+      guard let image = try? await gen.image(at: CMTime(seconds: t, preferredTimescale: 600)).image else { continue }
+      var data = [UInt8](repeating: 0, count: size * size * 4)
+      data.withUnsafeMutableBytes { ptr in
+        if let ctx = CGContext(data: ptr.baseAddress, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4,
+                               space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) {
+          ctx.draw(image, in: CGRect(x: 0, y: 0, width: size, height: size))
+        }
+      }
+      for p in stride(from: 0, to: data.count, by: 4) {
+        out.append((Int(data[p]) << 16) | (Int(data[p + 1]) << 8) | Int(data[p + 2]))
+      }
+    }
+    return out
+  }
+
+  // MARK: - Transcrição
+
+  static func transcribe(url: URL, language: String, done: @escaping ([String: Any]) -> Void) {
+    var finished = false
+    let finish: ([String: Any]) -> Void = { r in
+      if finished { return }
+      finished = true
+      done(r)
+    }
+    SFSpeechRecognizer.requestAuthorization { status in
+      guard status == .authorized else {
+        finish(["available": false, "reason": "permissao"])
+        return
+      }
+      guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language)), recognizer.isAvailable else {
+        finish(["available": false, "reason": "indisponivel"])
+        return
+      }
+      let request = SFSpeechURLRecognitionRequest(url: url)
+      request.shouldReportPartialResults = false
+      if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
+      if #available(iOS 16, *) { request.addsPunctuation = true }
+      var task: SFSpeechRecognitionTask?
+      task = recognizer.recognitionTask(with: request) { result, error in
+        if let result = result, result.isFinal {
+          let words: [[String: Any]] = result.bestTranscription.segments.map {
+            ["text": $0.substring, "start": $0.timestamp, "end": $0.timestamp + $0.duration]
+          }
+          finish(["available": true, "timed": true, "words": words])
+          task = nil
+        } else if let error = error {
+          // Sem fala no arquivo também chega como erro: devolve vazio, não falha.
+          finish(["available": true, "timed": true, "words": [], "reason": error.localizedDescription])
+          task = nil
+        }
+      }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 90) {
+        task?.cancel()
+        finish(["available": false, "reason": "tempo"])
+      }
+    }
   }
 
   // MARK: - Análise
@@ -243,6 +333,16 @@ public class TerryMediaModule: Module {
     let end: Double
     let crop: CGRect
     let volume: Float
+    let zoomFrom: CGFloat
+    let zoomTo: CGFloat
+  }
+
+  /// Recorte reduzido em torno do próprio centro: zoom `z` sobre o enquadramento escolhido.
+  static func zoomed(_ crop: CGRect, _ z: CGFloat) -> CGRect {
+    guard z > 1.0001 else { return crop }
+    let w = crop.width / z
+    let h = crop.height / z
+    return CGRect(x: crop.midX - w / 2, y: crop.midY - h / 2, width: w, height: h)
   }
 
   static func cropTransform(natural: CGSize, preferred: CGAffineTransform, crop: CGRect, render: CGSize) -> CGAffineTransform {
@@ -275,7 +375,9 @@ public class TerryMediaModule: Module {
         end: (s["end"] as? Double) ?? 0,
         crop: CGRect(x: (c["left"] as? Double) ?? 0, y: (c["top"] as? Double) ?? 0,
                      width: (c["width"] as? Double) ?? 1, height: (c["height"] as? Double) ?? 1),
-        volume: Float((s["volume"] as? Double) ?? 1)
+        volume: Float((s["volume"] as? Double) ?? 1),
+        zoomFrom: CGFloat(((s["zoom"] as? [String: Any])?["from"] as? Double) ?? 1),
+        zoomTo: CGFloat(((s["zoom"] as? [String: Any])?["to"] as? Double) ?? 1)
       )
     }
 
@@ -313,7 +415,14 @@ public class TerryMediaModule: Module {
       }
 
       let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
-      layer.setTransform(TerryMediaModule.cropTransform(natural: natural, preferred: preferred, crop: seg.crop, render: render), at: cursor)
+      let startT = TerryMediaModule.cropTransform(natural: natural, preferred: preferred, crop: TerryMediaModule.zoomed(seg.crop, seg.zoomFrom), render: render)
+      if seg.zoomFrom != seg.zoomTo {
+        // Zoom automático: a transformação vai do enquadramento inicial ao final ao longo do take.
+        let endT = TerryMediaModule.cropTransform(natural: natural, preferred: preferred, crop: TerryMediaModule.zoomed(seg.crop, seg.zoomTo), render: render)
+        layer.setTransformRamp(fromStart: startT, toEnd: endT, timeRange: CMTimeRange(start: cursor, duration: range.duration))
+      } else {
+        layer.setTransform(startT, at: cursor)
+      }
       let instruction = AVMutableVideoCompositionInstruction()
       instruction.timeRange = CMTimeRange(start: cursor, duration: range.duration)
       instruction.layerInstructions = [layer]
@@ -334,6 +443,27 @@ public class TerryMediaModule: Module {
       composition.removeTrack(audioTrack)
     } else {
       mixParams.append(audioParams)
+    }
+
+    // Trilha em loop por baixo, com saída suave no último segundo.
+    if let music = spec["music"] as? [String: Any], let mUri = music["uri"] as? String {
+      let mAsset = AVURLAsset(url: TerryMediaModule.url(from: mUri))
+      if let mSrc = try await mAsset.loadTracks(withMediaType: .audio).first,
+         let mTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+        let mDuration = try await mAsset.load(.duration)
+        var at = CMTime.zero
+        while CMTimeCompare(at, cursor) < 0 && CMTimeGetSeconds(mDuration) > 0.5 {
+          let length = CMTimeMinimum(mDuration, CMTimeSubtract(cursor, at))
+          try mTrack.insertTimeRange(CMTimeRange(start: .zero, duration: length), of: mSrc, at: at)
+          at = CMTimeAdd(at, length)
+        }
+        let vol = Float((music["volume"] as? Double) ?? 0.3)
+        let p = AVMutableAudioMixInputParameters(track: mTrack)
+        p.setVolume(vol, at: .zero)
+        let fade = CMTime(seconds: min(1.0, CMTimeGetSeconds(cursor) / 4), preferredTimescale: 600)
+        p.setVolumeRamp(fromStartVolume: vol, toEndVolume: 0, timeRange: CMTimeRange(start: CMTimeSubtract(cursor, fade), duration: fade))
+        mixParams.append(p)
+      }
     }
 
     // Narração gravada por cima da prévia.
@@ -364,10 +494,11 @@ public class TerryMediaModule: Module {
       parent.addSublayer(videoLayer)
       let style = (cap["style"] as? String) ?? "faixa"
       let position = (cap["position"] as? String) ?? "baixo"
+      let color = TerryMediaModule.color(hex: (cap["color"] as? String) ?? "#FFFFFF")
       for cue in cues {
         guard let text = cue["text"] as? String, !text.isEmpty,
               let start = cue["start"] as? Double, let end = cue["end"] as? Double, end > start else { continue }
-        let layer = TerryMediaModule.captionLayer(text: text, style: style, position: position, render: render)
+        let layer = TerryMediaModule.captionLayer(text: text, style: style, position: position, color: color, render: render)
         layer.opacity = 0
         let show = CABasicAnimation(keyPath: "opacity")
         show.fromValue = 1
@@ -419,14 +550,19 @@ public class TerryMediaModule: Module {
 
   /// Uma legenda: texto branco pesado, centralizado, com faixa escura ou contorno.
   /// Coordenadas do AVVideoCompositionCoreAnimationTool: origem embaixo à esquerda.
-  static func captionLayer(text: String, style: String, position: String, render: CGSize) -> CALayer {
+  static func color(hex: String) -> UIColor {
+    let v = Int(hex.replacingOccurrences(of: "#", with: ""), radix: 16) ?? 0xFFFFFF
+    return UIColor(red: CGFloat((v >> 16) & 255) / 255, green: CGFloat((v >> 8) & 255) / 255, blue: CGFloat(v & 255) / 255, alpha: 1)
+  }
+
+  static func captionLayer(text: String, style: String, position: String, color: UIColor, render: CGSize) -> CALayer {
     let fontSize = render.width * 0.054
     let paragraph = NSMutableParagraphStyle()
     paragraph.alignment = .center
     paragraph.lineBreakMode = .byWordWrapping
     var attrs: [NSAttributedString.Key: Any] = [
       .font: UIFont.systemFont(ofSize: fontSize, weight: .heavy),
-      .foregroundColor: UIColor.white,
+      .foregroundColor: color,
       .paragraphStyle: paragraph,
     ]
     if style == "contorno" {

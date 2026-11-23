@@ -3,7 +3,7 @@
 
 import { parseBrief, subjectFromBrief, type BriefFacts } from './brief';
 import { GENRE_INFO, PLANS, type Genre, type ShotCtx, type ShotTemplate } from './genres';
-import type { AudioMode, HookOption, Scene, SceneRole, StyleFeatures, TargetDuration } from './types';
+import type { AudioMode, HookOption, Scene, SceneRole, StructureBeat, StyleFeatures, TargetDuration } from './types';
 
 export type ScriptContext = {
   brief: string;
@@ -12,6 +12,8 @@ export type ScriptContext = {
   audioModes: AudioMode[];
   /** Tipo de conteúdo; sem ele, gastronomia. */
   genre?: Genre;
+  /** Estrutura plano a plano da referência principal: o roteiro espelha. */
+  structure?: StructureBeat[];
 };
 
 type Approach = 'som' | 'pergunta' | 'opiniao' | 'resultado';
@@ -265,17 +267,18 @@ export function fitDurations(scenes: Scene[], target: number, features: StyleFea
 export function generateHooksLocal(ctx: ScriptContext): HookOption[] {
   if (ctx.genre && ctx.genre !== 'gastronomia') return generateGenreHooks(ctx, ctx.genre);
   const facts = parseBrief(ctx.brief);
-  const [a, b] = approachesFor(ctx.features, facts);
+  const [a, b] = approachesFor(featuresWithStructure(ctx), facts);
   return [a, b].map((approach, i) => {
     const plan = planFor(approach, facts, ctx.targetDuration);
     const scenes = plan.map((key) => SHOTS[key][0](facts, ctx));
-    // Se a abertura é pelo som, a fala da escala vira a primeira fala do vídeo.
+    const extras = ['detalhe', 'contexto', 'escala', 'revelacao', 'fachada'].filter((k) => !plan.includes(k)).map((k) => SHOTS[k][0](facts, ctx));
+    const mirrored = mirrorStructure(scenes, extras, ctx);
     return {
       id: newId('gancho'),
       title: HOOK_META[approach].title(facts),
       approach: HOOK_META[approach].approach,
-      why: i === 0 ? 'É como as suas referências abrem.' : 'Uma alternativa com outro tipo de abertura.',
-      scenes: fitDurations(scenes, ctx.targetDuration, ctx.features),
+      why: mirrored ? structureWhy(ctx.structure!, i) : i === 0 ? 'É como as suas referências abrem.' : 'Uma alternativa com outro tipo de abertura.',
+      scenes: mirrored ?? fitDurations(scenes, ctx.targetDuration, ctx.features),
     };
   });
 }
@@ -346,21 +349,26 @@ function wantsTalkFirst(f: StyleFeatures) {
 export function generateGenreHooks(ctx: ScriptContext, genre: Exclude<Genre, 'gastronomia'>): HookOption[] {
   const plan = PLANS[genre];
   const sc = shotCtx(ctx, genre);
-  const talk = wantsTalkFirst(ctx.features);
+  const talk = ctx.structure?.length ? ctx.structure[0].voice : wantsTalkFirst(ctx.features);
   const primary = plan.hooks.find((h) => h.kind === (talk ? 'fala' : 'visual')) ?? plan.hooks[0];
   const secondary = plan.hooks.find((h) => h !== primary && h.kind !== primary.kind) ?? plan.hooks.find((h) => h !== primary)!;
   const max = sceneCount(ctx.targetDuration);
   const bodyCount = Math.max(1, Math.min(plan.body.length, max - 2));
   return [primary, secondary].map((h, i) => {
     // O gancho "antes" (beleza) já usa a tomada de antes: não repete no miolo.
-    const body = plan.body.filter((b) => !(h.shot.role === 'antes' && b.role === 'antes')).slice(0, bodyCount);
+    const usable = plan.body.filter((b) => !(h.shot.role === 'antes' && b.role === 'antes'));
+    const body = usable.slice(0, bodyCount);
     const scenes = [buildShot(h.shot, sc), ...body.map((b) => buildShot(b, sc)), buildShot(plan.ending, sc)];
+    const extras = usable.slice(bodyCount).map((b) => buildShot(b, sc));
+    const mirrored = mirrorStructure(scenes, extras, ctx);
     return {
       id: newId('gancho'),
       title: h.title(sc),
       approach: h.approach,
-      why: i === 0 ? (talk ? 'Suas referências entram falando.' : 'Suas referências abrem pela imagem.') : 'Uma alternativa com outro tipo de abertura.',
-      scenes: fitDurations(scenes, ctx.targetDuration, ctx.features),
+      why: mirrored
+        ? structureWhy(ctx.structure!, i)
+        : i === 0 ? (talk ? 'Suas referências entram falando.' : 'Suas referências abrem pela imagem.') : 'Uma alternativa com outro tipo de abertura.',
+      scenes: mirrored ?? fitDurations(scenes, ctx.targetDuration, ctx.features),
     };
   });
 }
@@ -375,4 +383,64 @@ function regenerateGenreScene(current: Scene, ctx: ScriptContext, genre: Exclude
   const candidates = (pool.length ? pool : plan.body).map((t) => buildShot(t, sc)).filter((s) => s.title !== current.title);
   const pick = candidates.length ? candidates[variant % candidates.length] : buildShot(plan.body[variant % plan.body.length], sc);
   return { ...pick, id: current.id, clipId: current.clipId, duration: current.duration };
+}
+
+// ---------------------------------------------------------------------------
+// Espelhar a estrutura da referência: mesmo número de planos (proporcional à duração),
+// mesmas durações relativas e fala nos mesmos lugares. Os modelos do gênero só dão o conteúdo.
+
+const speaks = (sc: Scene) => !!sc.line || /^(Fala pra câmera|Na narração|Sua fala|A fala entra)/.test(sc.audio);
+
+function featuresWithStructure(ctx: ScriptContext): StyleFeatures {
+  if (!ctx.structure?.length) return ctx.features;
+  const first = ctx.structure[0];
+  return first.voice
+    ? { ...ctx.features, voiceOnset: 0.3, opening: ctx.features.opening === 'pergunta' ? 'pergunta' : 'rosto' }
+    : { ...ctx.features, voiceOnset: Math.max(2.5, ctx.features.voiceOnset ?? 3), opening: ctx.features.opening === 'rosto' ? 'preparo' : ctx.features.opening };
+}
+
+export function mirrorStructure(scenes: Scene[], extras: Scene[], ctx: ScriptContext): Scene[] | null {
+  const st = ctx.structure;
+  if (!st || !st.length || scenes.length < 2) return null;
+  if (st.reduce((a, b) => a + b.duration, 0) < 2) return null;
+  const refTotal = st.reduce((a, b) => a + b.duration, 0) || 1;
+  const target = ctx.targetDuration;
+  // quantas tomadas: as da referência, na proporção da duração alvo (mínimo 3, máximo 10)
+  const n = Math.max(3, Math.min(10, Math.round((st.length * target) / refTotal)));
+  const beats = Array.from({ length: n }, (_, i) => st[Math.min(st.length - 1, Math.floor((i * st.length) / n))]);
+  const hook = scenes[0];
+  const ending = scenes[scenes.length - 1];
+  const pool = [...scenes.slice(1, -1), ...extras];
+  const used = new Set<string>();
+  const middle: Scene[] = [];
+  for (const beat of beats.slice(1, -1)) {
+    const pick = pool.find((sc) => !used.has(sc.id) && speaks(sc) === beat.voice) ?? pool.find((sc) => !used.has(sc.id));
+    if (pick) {
+      used.add(pick.id);
+      middle.push(pick);
+    } else {
+      middle.push(
+        scene(
+          beat.voice ? 'reacao' : 'detalhe',
+          beat.voice ? 'Comentário rápido' : 'Plano de apoio',
+          beat.voice ? 'Uma frase sua sobre o que acabou de mostrar, olhando pra câmera.' : 'Plano curto de detalhe ou do ambiente, ligando uma tomada na outra.',
+          2,
+          beat.voice ? 'Sua fala real, na hora. Sem frase pronta.' : audioFor(ctx.audioModes, 'som'),
+        ),
+      );
+    }
+  }
+  // Ordem: tomadas com e sem fala nos mesmos lugares da referência; o miolo mantém a ordem lógica.
+  const chosen = [hook, ...middle, ending];
+  const weights = beats.map((b) => b.duration);
+  const wsum = weights.reduce((a, b) => a + b, 0) || 1;
+  return chosen.map((sc, i) => ({ ...sc, duration: Math.max(1, Math.round(((weights[i] / wsum) * target) * 2) / 2) }));
+}
+
+function structureWhy(st: StructureBeat[], i: number): string {
+  if (i > 0) return 'Mesma estrutura da referência, com outra abertura.';
+  const voiced = st.filter((b) => b.voice).length;
+  const avg = st.reduce((a, b) => a + b.duration, 0) / st.length;
+  if (st.length === 1) return `Segue a referência: um plano contínuo de ${avg.toFixed(0)} s, ${st[0].voice ? 'com fala' : 'sem fala'}. Aqui, tomadas longas e poucas.`;
+  return `Segue a referência: ${st.length} planos de ~${avg.toFixed(1).replace('.', ',')} s, ${voiced} com fala, abrindo ${st[0].voice ? 'falando' : 'sem fala'}.`;
 }

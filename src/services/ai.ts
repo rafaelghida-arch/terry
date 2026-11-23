@@ -62,6 +62,13 @@ export type AiAnalysis = {
     talkStyle: StyleFeatures['talkStyle'];
     genre: Genre;
     summary: string;
+    hasCaptions: boolean | null;
+    captionColor: string | null;
+    captionPosition: 'baixo' | 'meio' | 'topo' | null;
+    usesZoom: boolean | null;
+    zoomStyle: 'suave' | 'punch' | null;
+    usesMusic: boolean | null;
+    structure: { duration: number; voice: boolean; shot: string; beat: string; note: string }[];
   }[];
   genre: Genre;
   observations: { text: string; referenceIds: string[] }[];
@@ -112,6 +119,7 @@ export async function analyzeReferencesAI(brief: string, genre: Genre, refs: Ref
 type ScriptCtx = {
   brief: string;
   genre: Genre;
+  structure?: { duration: number; voice: boolean; shot?: string; beat?: string; note?: string }[];
   targetDuration: number;
   audioModes: string[];
   features: StyleFeatures;
@@ -134,3 +142,7 @@ export async function regenerateSceneAI(ctx: ScriptCtx, scenes: Scene[], index: 
 }
 
 export const aiConfigured = () => Boolean(API_URL);
+
+export async function publishIdeaAI(input: { brief: string; genre: Genre; title: string; observations: string[]; references: string[] }) {
+  return request<{ hashtags: string[]; title: string; description: string; sound: { kind: string; search: string; why: string } }>('/v1/publish', input, 60_000);
+}

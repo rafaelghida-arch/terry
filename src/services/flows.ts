@@ -9,14 +9,17 @@ import {
   localAnalysis,
   terryLineFor,
 } from '../domain/style';
-import { suggestTrim } from '../domain/timeline';
+import { buildTimeline, suggestTrim } from '../domain/timeline';
 import { terry } from '../domain/terry';
+import { effectiveGenre } from '../domain/genres';
+import { combineLook, lookDefaults, lookOf } from '../domain/look';
 import { DEFAULT_CAPTIONS, draftCaptions, newCue, toClipTime } from '../domain/captions';
-import type { AudioMode, CaptionCue, CaptionSettings, Clip, Genre, HookOption, Observation, Project, Scene, StyleAnalysis, TargetDuration } from '../domain/types';
+import type { AudioMode, CaptionCue, CaptionSettings, Clip, Genre, StructureBeat, HookOption, Observation, Project, Scene, StyleAnalysis, TargetDuration } from '../domain/types';
 import { getProject, putProject, updateProject } from '../state/store';
 import { removeFile } from '../storage/projects';
-import { AiUnavailableError, aiConfigured, analyzeReferencesAI, generateScriptAI, regenerateSceneAI, type AiAnalysis } from './ai';
-import { analyzeReference, voiceOnsetOf } from './media';
+import { AiUnavailableError, aiConfigured, analyzeReferencesAI, generateScriptAI, publishIdeaAI, regenerateSceneAI, type AiAnalysis } from './ai';
+import { localPublishIdea, type PublishIdea } from '../domain/publish';
+import { analyzeReference, paletteOf, transcribeClip, voiceOnsetOf } from './media';
 
 export function createProject(input: { brief: string; genre: Genre; targetDuration: TargetDuration; audioModes: AudioMode[] }): Project {
   const now = Date.now();
@@ -125,7 +128,23 @@ function mergeAiAnalysis(local: StyleAnalysis, ai: AiAnalysis): StyleAnalysis {
   const measured = local.observations.filter((o) => o.text.startsWith('Os planos duram'));
   // A fala do TERRY só vale se for verdadeira para todas — confere com as features.
   const ruleLine = terryLineFor(combined, feats);
+  const structureByRef: Record<string, StructureBeat[]> = { ...(local.structureByRef ?? {}) };
+  for (const r of ai.perReference) {
+    if (r.structure?.length >= 2) structureByRef[r.referenceId] = r.structure.map((b) => ({ duration: b.duration, voice: b.voice, shot: b.shot, beat: b.beat, note: b.note }));
+  }
+  const firstId = local.referenceIds[0];
+  const look = combineLook(
+    ai.perReference.map((r) => ({
+      ...r,
+      // trilha: a IA vê os quadros, mas quem ouve é a medição local
+      usesMusic: r.usesMusic ?? local.look?.music ?? null,
+    })),
+    local.look?.palette ?? [],
+  );
   return {
+    look,
+    structureByRef,
+    structure: firstId ? structureByRef[firstId] : local.structure,
     source: 'ia',
     model: ai.model,
     createdAt: Date.now(),
@@ -151,6 +170,8 @@ export async function runAnalysis(projectId: string, onProgress: AnalysisProgres
     if (refs[i].metrics && refs[i].frames?.length) continue;
     onProgress(`Assistindo a referência ${i + 1} de ${refs.length}…`);
     refs[i] = await analyzeReference(projectId, refs[i]);
+    const palette = await paletteOf(refs[i].uri);
+    refs[i] = { ...refs[i], metrics: refs[i].metrics ? { ...refs[i].metrics!, palette } : undefined };
     updateProject(projectId, (cur) => ({ ...cur, references: cur.references.map((r) => (r.id === refs[i].id ? refs[i] : r)) }));
   }
   p = getProject(projectId)!;
@@ -209,12 +230,13 @@ function scriptContext(p: Project) {
   const primarySummary = primary ? p.analysis!.perReference.find((r) => r.referenceId === primary.id)?.summary : undefined;
   return {
     brief: p.brief,
-    genre: p.genre ?? 'gastronomia',
+    genre: effectiveGenre(p.genre, p.analysis?.genre?.detected),
     targetDuration: p.targetDuration,
     audioModes: p.audioModes,
     features,
     observations: p.analysis!.observations.filter((o) => o.enabled).map((o) => o.text),
     primaryReference: primary ? `${primary.name}: ${primarySummary ?? ''}` : null,
+    structure: (primary && p.analysis!.structureByRef?.[primary.id]) || p.analysis!.structure,
   };
 }
 
@@ -398,27 +420,64 @@ export function setGenre(projectId: string, genre: Genre) {
 // ---------------------------------------------------------------------------
 // Legendas
 
-/** Liga as legendas e cria um rascunho a partir das falas do roteiro onde ainda não há texto. */
-export async function enableCaptions(projectId: string): Promise<number> {
+export type CaptionReport = { transcribed: number; fromScript: number; empty: string[]; unavailable?: string };
+
+/**
+ * Liga as legendas e legenda TODOS os takes do mesmo jeito: transcreve a fala de cada um no
+ * aparelho; onde não der, usa a fala do roteiro; o que sobrar fica listado para o criador escrever.
+ * `force` refaz também os takes que já tinham legenda.
+ */
+export async function enableCaptions(projectId: string, force = false, onProgress?: (msg: string) => void): Promise<CaptionReport> {
   const p = getProject(projectId)!;
-  const clips = { ...p.clips };
-  let drafted = 0;
-  for (const scene of p.scenes) {
-    const clip = scene.clipId ? clips[scene.clipId] : undefined;
-    if (!clip || clip.captions?.length || !scene.line) continue;
-    const onset = clip.hasAudio ? await voiceOnsetOf(projectId, clip.uri) : null;
-    const cues = draftCaptions(clip, scene, onset);
-    if (cues.length) {
-      clips[clip.id] = { ...clip, captions: cues };
-      drafted += cues.length;
+  const tl = buildTimeline(p);
+  const report: CaptionReport = { transcribed: 0, fromScript: 0, empty: [] };
+  const result: Record<string, CaptionCue[]> = {};
+  for (const [i, seg] of tl.segments.entries()) {
+    const clip = seg.clip;
+    const scene = p.scenes[seg.sceneIndex];
+    if (!force && clip.captions?.length) continue;
+    onProgress?.(`Ouvindo o take ${i + 1} de ${tl.segments.length}…`);
+    let cues: CaptionCue[] = [];
+    if (clip.hasAudio) {
+      const t = await transcribeClip(projectId, clip);
+      if (t.ok) cues = t.cues;
+      else report.unavailable = t.reason;
+      if (cues.length) report.transcribed++;
     }
+    if (!cues.length && scene?.line) {
+      const onset = clip.hasAudio ? await voiceOnsetOf(projectId, clip.uri) : null;
+      cues = draftCaptions(clip, scene, onset);
+      if (cues.length) report.fromScript++;
+    }
+    if (!cues.length) report.empty.push(scene?.title ?? `Take ${i + 1}`);
+    result[clip.id] = cues;
   }
+  const look = lookOf(p.analysis);
   updateProject(projectId, (cur) => ({
     ...cur,
-    clips: Object.fromEntries(Object.entries(cur.clips).map(([id, c]) => [id, clips[id]?.captions && !c.captions?.length ? { ...c, captions: clips[id].captions } : c])),
-    captions: { ...DEFAULT_CAPTIONS, ...cur.captions, enabled: true },
+    clips: Object.fromEntries(Object.entries(cur.clips).map(([id, c]) => [id, result[id] ? { ...c, captions: result[id] } : c])),
+    captions: { ...DEFAULT_CAPTIONS, color: look.captionColor ?? '#FFFFFF', ...cur.captions, enabled: true },
   }));
-  return drafted;
+  return report;
+}
+
+/** Na primeira montagem, o editor começa com o visual das referências (e só com ele). */
+export function applyReferenceLook(projectId: string): { captionsOn: boolean } {
+  const p = getProject(projectId)!;
+  if (p.edit.lookApplied) return { captionsOn: false };
+  const look = lookOf(p.analysis);
+  const d = lookDefaults(p, look);
+  updateProject(projectId, (cur) => ({
+    ...cur,
+    captions: d.captions,
+    edit: {
+      ...cur.edit,
+      lookApplied: true,
+      zoom: d.zoom,
+      // Trilha nunca entra sozinha: o vídeo sai com o som real; a sugestão de trilha vem na exportação.
+    },
+  }));
+  return { captionsOn: d.captions.enabled };
 }
 
 export function updateCaptionSettings(projectId: string, patch: Partial<CaptionSettings>) {
@@ -453,4 +512,30 @@ export function addCueAt(projectId: string, t: number): string | null {
     return { ...cur, clips: { ...cur.clips, [at.clipId]: { ...c, captions } } };
   });
   return cue.id;
+}
+
+// ---------------------------------------------------------------------------
+// Publicação: hashtags, título, descrição e recomendação de trilha
+
+export async function publishIdea(projectId: string): Promise<PublishIdea> {
+  const p = getProject(projectId)!;
+  if (p.publish?.sound) return p.publish;
+  const genre = effectiveGenre(p.genre, p.analysis?.genre?.detected);
+  let idea: PublishIdea = localPublishIdea({ brief: p.brief, title: p.title, genre });
+  if (p.analysis?.source === 'ia' && aiConfigured()) {
+    try {
+      const r = await publishIdeaAI({
+        brief: p.brief,
+        genre,
+        title: p.title,
+        observations: p.analysis.observations.filter((o) => o.enabled).map((o) => o.text),
+        references: p.analysis.perReference.map((r) => r.summary),
+      });
+      if (r.hashtags.length) idea = { ...r, source: 'ia' };
+    } catch {
+      // segue com a sugestão local
+    }
+  }
+  updateProject(projectId, (cur) => ({ ...cur, publish: idea }));
+  return idea;
 }

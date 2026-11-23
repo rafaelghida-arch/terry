@@ -1,7 +1,8 @@
 // Análise de estilo feita no aparelho, a partir das medidas do módulo nativo.
 // Ela só afirma o que foi medido: duração dos planos, quando entra a voz, quanto som ambiente existe.
 
-import type { Observation, Reference, ReferenceMetrics, ReferenceStyle, StyleAnalysis, StyleFeatures } from './types';
+import { combineLook } from './look';
+import type { Observation, Reference, ReferenceMetrics, ReferenceStyle, StructureBeat, StyleAnalysis, StyleFeatures } from './types';
 
 export type RawAnalysis = {
   duration: number;
@@ -72,7 +73,19 @@ export function metricsFromRaw(raw: RawAnalysis): ReferenceMetrics {
   for (let i = 1; i < bounds.length; i++) shotLengths.push(bounds[i] - bounds[i - 1]);
   const audio = raw.hasAudio
     ? classifyAudio(raw.rmsDb, raw.zcr, raw.audioWindow)
-    : { voiceOnset: null, ambientShare: 0, silenceShare: 1 };
+    : { labels: [] as ('silencio' | 'som' | 'voz')[], voiceOnset: null, ambientShare: 0, silenceShare: 1 };
+  // Cada plano: tem fala se pelo menos 30% das janelas dele foram classificadas como voz.
+  const shots = shotLengths.map((len, i) => {
+    const start = bounds[i];
+    const end = bounds[i + 1];
+    const a = Math.floor(start / raw.audioWindow);
+    const b = Math.max(a + 1, Math.floor(end / raw.audioWindow));
+    const slice = audio.labels.slice(a, b);
+    const voice = slice.length > 0 && slice.filter((l) => l === 'voz').length / slice.length >= 0.3;
+    return { start: r2(start), end: r2(end), voice };
+  });
+  // Trilha provável: som contínuo do começo ao fim, sem buracos de silêncio.
+  const musicLikely = raw.hasAudio && raw.rmsDb.length > 20 && audio.silenceShare < 0.04 && percentile(raw.rmsDb, 0.1) > -42;
   return {
     duration: raw.duration,
     width: raw.width,
@@ -88,7 +101,26 @@ export function metricsFromRaw(raw: RawAnalysis): ReferenceMetrics {
     voiceOnset: audio.voiceOnset,
     ambientShare: audio.ambientShare,
     silenceShare: audio.silenceShare,
+    shots,
+    musicLikely,
   };
+}
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Estrutura plano a plano de uma referência, a partir das medidas. */
+export function structureFromMetrics(m: ReferenceMetrics): StructureBeat[] {
+  const shots = m.shots ?? [{ start: 0, end: m.duration, voice: m.voiceOnset !== null }];
+  // Planos muito curtos (< 0,6 s) são juntados ao anterior: são flashes, não tomadas.
+  const out: StructureBeat[] = [];
+  for (const sh of shots) {
+    const d = sh.end - sh.start;
+    if (out.length && d < 0.6) {
+      out[out.length - 1].duration = r2(out[out.length - 1].duration + d);
+      out[out.length - 1].voice ||= sh.voice;
+    } else out.push({ duration: r2(d), voice: sh.voice });
+  }
+  return out;
 }
 
 export function paceOf(avgShot: number): StyleFeatures['pace'] {
@@ -236,7 +268,21 @@ export function localAnalysis(refs: Reference[]): StyleAnalysis {
     divergent: isDivergent(feats),
     terryLine: feats.length ? terryLineFor(combined, feats) : null,
     referenceIds: refs.map((r) => r.id),
+    structureByRef: Object.fromEntries(refs.filter((r) => r.metrics).map((r) => [r.id, structureFromMetrics(r.metrics!)])),
+    structure: refs[0]?.metrics ? structureFromMetrics(refs[0].metrics) : undefined,
+    look: combineLook(
+      refs.filter((r) => r.metrics).map((r) => ({ usesMusic: r.metrics!.musicLikely ?? null })),
+      mergePalettes(refs.map((r) => r.metrics?.palette ?? [])),
+    ),
   };
+}
+
+/** Junta as paletas das referências, sem repetir tons parecidos. */
+export function mergePalettes(lists: string[][]): string[] {
+  const out: string[] = [];
+  const maxLen = Math.max(0, ...lists.map((l) => l.length));
+  for (let i = 0; i < maxLen && out.length < 3; i++) for (const l of lists) if (l[i] && !out.includes(l[i]) && out.length < 3) out.push(l[i]);
+  return out;
 }
 
 export function defaultFeatures(): StyleFeatures {

@@ -182,7 +182,7 @@ export const s = StyleSheet.create({
   terry: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   bubble: { flex: 1, backgroundColor: C.surface2, borderRadius: R.l, borderBottomLeftRadius: 4, paddingHorizontal: 14, paddingVertical: 11 },
   terryText: { ...T.body },
-  tool: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 6 },
+  tool: { width: 66, alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 6 },
   toolText: { color: C.dim, fontSize: 10.5, fontWeight: '700', textAlign: 'center' },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   sheet: { backgroundColor: C.surface, borderTopLeftRadius: R.xl, borderTopRightRadius: R.xl, borderTopWidth: 1, borderColor: C.border },

@@ -2,7 +2,7 @@
 // Variações escolhidas de forma estável por projeto para não repetir bordão.
 
 import { parseBrief } from './brief';
-import { GENRE_INFO, PLANS, type Genre } from './genres';
+import { effectiveGenre, GENRE_INFO, PLANS, type Genre } from './genres';
 import { forms } from './scriptLocal';
 import type { Project, Scene } from './types';
 import { buildTimeline, formatDuration } from './timeline';
@@ -35,7 +35,8 @@ export const terry = {
   genreMismatch(p: Project): string | null {
     const detected = p.analysis?.genre?.detected;
     const chosen = p.genre ?? 'gastronomia';
-    if (!detected || detected === chosen) return null;
+    if (!detected || detected === chosen || detected === 'outro') return null;
+    if (chosen === 'outro') return `Pelas suas referências, isso parece ${GENRE_INFO[detected].label.toLowerCase()}. Vou montar o roteiro nesse estilo.`;
     return `Suas referências parecem ${GENRE_INFO[detected].label.toLowerCase()}, e o briefing fala de ${GENRE_INFO[chosen].label.toLowerCase()}. Sigo qual?`;
   },
 
@@ -83,7 +84,7 @@ export const terry = {
         return `Mão aberta embaixo ${forms(w).do} ${w}. É o tamanho que importa aqui.`;
       }
       default:
-        if (p.genre && p.genre !== 'gastronomia') return PLANS[p.genre].recordTip;
+        { const g = effectiveGenre(p.genre, p.analysis?.genre?.detected); if (g !== 'gastronomia') return PLANS[g].recordTip; }
         return 'Segura o celular firme e grava um pouco antes e depois. Eu corto.';
     }
   },
@@ -98,7 +99,7 @@ export const terry = {
 
   review(p: Project): string {
     const tl = buildTimeline(p);
-    const g = p.genre ?? 'gastronomia';
+    const g = effectiveGenre(p.genre, p.analysis?.genre?.detected);
     const byGenre: Partial<Record<Genre, string>> = {
       beleza: 'O primeiro corte tá pronto. Confere se a luz do antes e do resultado ficou igual.',
       review: 'O primeiro corte tá pronto. Confere se o produto aparece com a marca legível.',

@@ -25,6 +25,7 @@ const AUDIO_DEFAULT: Record<Genre, AudioMode[]> = {
   vlog: ['fala', 'ambiente'],
   fitness: ['fala', 'ambiente'],
   humor: ['fala'],
+  outro: ['fala', 'ambiente'],
 };
 
 export default function NewProject() {
@@ -34,7 +35,7 @@ export default function NewProject() {
   const [modes, setModes] = useState<AudioMode[] | null>(null);
 
   const detected = useMemo(() => detectGenre(brief), [brief]);
-  const genre: Genre = picked ?? (brief.trim().length > 12 ? detected.genre : 'gastronomia');
+  const genre: Genre = picked ?? (brief.trim().length > 12 ? detected.genre : 'outro');
   const audio = modes ?? AUDIO_DEFAULT[genre];
 
   const toggle = (m: AudioMode) => setModes(audio.includes(m) ? (audio.length > 1 ? audio.filter((x) => x !== m) : audio) : [...audio, m]);

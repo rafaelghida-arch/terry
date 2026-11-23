@@ -1,6 +1,7 @@
 // Mídia no simulador (navegador). Mesma interface de media.ts, usando <video>, <canvas> e Web Audio.
 // A exportação MP4 é nativa e só existe no app do celular.
-import type { Clip, MediaInfo, Project, Reference } from '../domain/types';
+import type { CaptionCue, Clip, MediaInfo, Project, Reference } from '../domain/types';
+import { captionPalette } from '../domain/palette';
 import { cutsFromDiffs, metricsFromRaw, type RawAnalysis } from '../domain/style';
 import { DEFAULT_FRAMING } from '../domain/timeline';
 import { newId } from '../domain/scriptLocal';
@@ -207,3 +208,31 @@ export async function exportProject(_project: Project): Promise<{ uri: string; d
 }
 
 export function cancelExport() {}
+
+/** Até 3 cores do vídeo (para a legenda), lidas no navegador. */
+export async function paletteOf(uri: string): Promise<string[]> {
+  try {
+    const v = await loadVideo(uri);
+    const px: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      await seek(v, ((i + 0.5) / 6) * v.duration);
+      const c = doc.createElement('canvas');
+      c.width = 24;
+      c.height = 24;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(v, 0, 0, 24, 24);
+      const d = ctx.getImageData(0, 0, 24, 24).data;
+      for (let j = 0; j < d.length; j += 4) px.push((d[j] << 16) | (d[j + 1] << 8) | d[j + 2]);
+    }
+    return captionPalette(px);
+  } catch {
+    return [];
+  }
+}
+
+export type Transcription = { cues: CaptionCue[]; ok: boolean; reason?: string };
+
+/** O navegador não transcreve arquivos: no simulador as legendas saem das falas do roteiro. */
+export async function transcribeClip(_projectId: string, _clip: Clip): Promise<Transcription> {
+  return { cues: [], ok: false, reason: 'simulador' };
+}

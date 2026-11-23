@@ -1,6 +1,16 @@
 package expo.modules.terrymedia
 
 import android.content.Context
+import android.content.Intent
+import android.media.AudioFormat
+import android.os.Build
+import android.os.Bundle
+import android.os.ParcelFileDescriptor
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import androidx.annotation.RequiresApi
+import androidx.media3.common.C
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.media.MediaCodec
@@ -87,6 +97,32 @@ class TerryMediaModule : Module() {
           stopProgress()
           promise.reject("ERR_EXPORT", e.message ?: "Falha na exportação", e)
         }
+      }
+    }
+
+    AsyncFunction("framePixels") { uri: String, count: Int, size: Int, promise: Promise ->
+      Thread {
+        try {
+          promise.resolve(mapOf("size" to size, "pixels" to framePixels(uri, count, size)))
+        } catch (e: Exception) {
+          promise.reject("ERR_PIXELS", "Não consegui ler as cores do vídeo: ${e.message}", e)
+        }
+      }.start()
+    }
+
+    AsyncFunction("transcribe") { uri: String, language: String, promise: Promise ->
+      if (Build.VERSION.SDK_INT < 33) {
+        promise.resolve(mapOf("available" to false, "reason" to "android_antigo"))
+      } else {
+        Thread {
+          try {
+            val pcm = File(context.cacheDir, "terry_stt_${System.nanoTime()}.pcm")
+            decodeToPcm16k(uri, pcm)
+            mainHandler.post { startRecognition(pcm, language, promise) }
+          } catch (e: Exception) {
+            promise.resolve(mapOf("available" to false, "reason" to (e.message ?: "erro")))
+          }
+        }.start()
       }
     }
 
@@ -330,6 +366,171 @@ class TerryMediaModule : Module() {
     return Pair(rms, zcr)
   }
 
+  // ---------- cores ----------
+
+  /** Pixels (0xRRGGBB) de alguns quadros reduzidos, para achar as cores do vídeo. */
+  private fun framePixels(uri: String, count: Int, size: Int): List<Int> {
+    val info = videoInfo(uri)
+    val duration = info["duration"] as Double
+    val r = retriever(uri)
+    val out = ArrayList<Int>()
+    try {
+      for (i in 0 until count.coerceIn(1, 12)) {
+        val t = duration * (i + 0.5) / count
+        val bmp = r.getScaledFrameAtTime((t * 1_000_000).toLong(), MediaMetadataRetriever.OPTION_CLOSEST_SYNC, size, size) ?: continue
+        val small = Bitmap.createScaledBitmap(bmp, size, size, true)
+        val px = IntArray(size * size)
+        small.getPixels(px, 0, size, 0, 0, size, size)
+        px.forEach { out.add(it and 0xFFFFFF) }
+        if (small != bmp) small.recycle()
+        bmp.recycle()
+      }
+    } finally {
+      r.release()
+    }
+    return out
+  }
+
+  // ---------- transcrição ----------
+
+  /** Decodifica o áudio do vídeo para PCM 16 bits, mono, 16 kHz (formato pedido pelo reconhecedor). */
+  private fun decodeToPcm16k(uri: String, out: File) {
+    val extractor = MediaExtractor()
+    extractor.setDataSource(context, toUri(uri), null)
+    var trackIndex = -1
+    var format: MediaFormat? = null
+    for (i in 0 until extractor.trackCount) {
+      val f = extractor.getTrackFormat(i)
+      if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
+        trackIndex = i
+        format = f
+        break
+      }
+    }
+    if (trackIndex < 0 || format == null) {
+      extractor.release()
+      throw IllegalStateException("sem_audio")
+    }
+    extractor.selectTrack(trackIndex)
+    val codec = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)
+    codec.configure(format, null, null, 0)
+    codec.start()
+    var srcRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+    var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+    var phase = 0L
+    val info = MediaCodec.BufferInfo()
+    var inputDone = false
+    var outputDone = false
+    FileOutputStream(out).buffered().use { stream ->
+      try {
+        while (!outputDone) {
+          if (!inputDone) {
+            val inIndex = codec.dequeueInputBuffer(10_000)
+            if (inIndex >= 0) {
+              val buf = codec.getInputBuffer(inIndex)!!
+              val size = extractor.readSampleData(buf, 0)
+              if (size < 0) {
+                codec.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                inputDone = true
+              } else {
+                codec.queueInputBuffer(inIndex, 0, size, extractor.sampleTime, 0)
+                extractor.advance()
+              }
+            }
+          }
+          val outIndex = codec.dequeueOutputBuffer(info, 10_000)
+          if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+            srcRate = codec.outputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            channels = codec.outputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+          } else if (outIndex >= 0) {
+            val o = codec.getOutputBuffer(outIndex)!!
+            o.position(info.offset)
+            o.limit(info.offset + info.size)
+            val shorts = o.order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+            val frames = shorts.remaining() / max(1, channels)
+            for (f in 0 until frames) {
+              var sum = 0
+              for (c in 0 until channels) sum += shorts.get(f * channels + c).toInt()
+              val sample = sum / max(1, channels)
+              // reamostragem simples para 16 kHz
+              phase += 16000
+              while (phase >= srcRate) {
+                phase -= srcRate
+                stream.write(sample and 0xFF)
+                stream.write((sample shr 8) and 0xFF)
+              }
+            }
+            codec.releaseOutputBuffer(outIndex, false)
+            if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
+          }
+        }
+      } finally {
+        codec.stop()
+        codec.release()
+        extractor.release()
+      }
+    }
+  }
+
+  @RequiresApi(33)
+  private fun startRecognition(pcm: File, language: String, promise: Promise) {
+    val ctx = context
+    if (!SpeechRecognizer.isRecognitionAvailable(ctx)) {
+      pcm.delete()
+      promise.resolve(mapOf("available" to false, "reason" to "sem_reconhecedor"))
+      return
+    }
+    val recognizer =
+      if (SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx)) SpeechRecognizer.createOnDeviceSpeechRecognizer(ctx)
+      else SpeechRecognizer.createSpeechRecognizer(ctx)
+    val pfd = ParcelFileDescriptor.open(pcm, ParcelFileDescriptor.MODE_READ_ONLY)
+    val texts = ArrayList<String>()
+    var done = false
+    fun finish(result: Map<String, Any>) {
+      if (done) return
+      done = true
+      try { recognizer.destroy() } catch (_: Exception) {}
+      try { pfd.close() } catch (_: Exception) {}
+      pcm.delete()
+      promise.resolve(result)
+    }
+    fun ok() = mapOf("available" to true, "timed" to false, "text" to texts.joinToString(" "))
+    recognizer.setRecognitionListener(object : RecognitionListener {
+      override fun onReadyForSpeech(params: Bundle?) {}
+      override fun onBeginningOfSpeech() {}
+      override fun onRmsChanged(rmsdB: Float) {}
+      override fun onBufferReceived(buffer: ByteArray?) {}
+      override fun onEndOfSpeech() {}
+      override fun onPartialResults(partialResults: Bundle?) {}
+      override fun onEvent(eventType: Int, params: Bundle?) {}
+      override fun onError(error: Int) {
+        val noSpeech = error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+        if (texts.isNotEmpty() || noSpeech) finish(ok()) else finish(mapOf("available" to false, "reason" to "erro_$error"))
+      }
+      override fun onResults(results: Bundle?) {
+        results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let { if (it.isNotBlank()) texts.add(it) }
+        finish(ok())
+      }
+      override fun onSegmentResults(segmentResults: Bundle) {
+        segmentResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let { if (it.isNotBlank()) texts.add(it) }
+      }
+      override fun onEndOfSegmentedSession() {
+        finish(ok())
+      }
+    })
+    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+      putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+      putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+      putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, pfd)
+      putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
+      putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+      putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, 16000)
+      putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)
+    }
+    recognizer.startListening(intent)
+    mainHandler.postDelayed({ if (texts.isNotEmpty()) finish(ok()) else finish(mapOf("available" to false, "reason" to "tempo")) }, 90_000)
+  }
+
   // ---------- exportação ----------
 
   private fun volumeProcessor(volume: Float): AudioProcessor {
@@ -357,10 +558,15 @@ class TerryMediaModule : Module() {
       val cw = num(crop["width"], 1.0).toFloat()
       val ch = num(crop["height"], 1.0).toFloat()
       // Crop usa coordenadas normalizadas de -1..1, com y para cima.
-      val videoEffects = listOf<Effect>(
+      val videoEffects = mutableListOf<Effect>(
         Crop(left * 2 - 1, (left + cw) * 2 - 1, 1 - (top + ch) * 2, 1 - top * 2),
         Presentation.createForWidthAndHeight(width, height, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP),
       )
+      (s["zoom"] as? Map<String, Any?>)?.let { z ->
+        val from = num(z["from"], 1.0).toFloat()
+        val to = num(z["to"], 1.0).toFloat()
+        if (from != 1f || to != 1f) videoEffects.add(ZoomRamp(from, to, (endMs - startMs) * 1000))
+      }
       val volume = num(s["volume"], 1.0).toFloat()
       val mediaItem = MediaItem.Builder()
         .setUri(toUri(s["uri"] as String))
@@ -390,6 +596,18 @@ class TerryMediaModule : Module() {
       sequences.add(EditedMediaItemSequence.withAudioFrom(listOf(edited)))
     }
 
+    (spec["music"] as? Map<String, Any?>)?.let { m ->
+      val uri = m["uri"] as? String ?: return@let
+      val edited = EditedMediaItem.Builder(MediaItem.fromUri(toUri(uri)))
+        .setRemoveVideo(true)
+        .setEffects(Effects(listOf(volumeProcessor(num(m["volume"], 0.3).toFloat())), emptyList()))
+        .build()
+      // Trilha em loop: a duração do vídeo continua sendo a dos takes.
+      sequences.add(
+        EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).addItem(edited).setIsLooping(true).build(),
+      )
+    }
+
     val compositionBuilder = Composition.Builder(sequences)
     (spec["captions"] as? Map<String, Any?>)?.let { cap ->
       val cues = (cap["cues"] as? List<Map<String, Any?>>).orEmpty().mapNotNull { c ->
@@ -399,7 +617,8 @@ class TerryMediaModule : Module() {
         if (text.isEmpty() || start < 0 || end <= start) null else CaptionCue(start, end, text)
       }
       if (cues.isNotEmpty()) {
-        val overlay = CaptionOverlay(cues, (cap["style"] as? String) ?: "faixa", (cap["position"] as? String) ?: "baixo", width)
+        val textColor = try { android.graphics.Color.parseColor((cap["color"] as? String) ?: "#FFFFFF") } catch (_: Exception) { android.graphics.Color.WHITE }
+        val overlay = CaptionOverlay(cues, (cap["style"] as? String) ?: "faixa", (cap["position"] as? String) ?: "baixo", width, textColor)
         compositionBuilder.setEffects(Effects(emptyList(), listOf<Effect>(OverlayEffect(listOf(overlay)))))
       }
     }
