@@ -3,10 +3,11 @@ import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { showDialog } from '../../../ui/dialog';
 import { terry } from '../../../domain/terry';
 import { buildTimeline, formatDuration } from '../../../domain/timeline';
-import { cancelExport, exportProject, makeThumb, onExportProgress } from '../../../services/media';
+import { cancelExport, exportProject, isSimulator, makeThumb, onExportProgress } from '../../../services/media';
 import { getProject, updateProject, useProject } from '../../../state/store';
 import { Icon } from '../../../ui/icons';
 import { Button, Footer, ProgressBar, Screen, TerryLine, TopBar } from '../../../ui/kit';
@@ -49,7 +50,7 @@ export default function Export() {
   };
 
   useEffect(() => {
-    if (started.current) return;
+    if (started.current || isSimulator) return;
     started.current = true;
     run();
     return () => cancelExport();
@@ -59,11 +60,28 @@ export default function Export() {
   if (!p) return null;
   const total = buildTimeline(p).total;
 
+  if (isSimulator) {
+    return (
+      <Screen>
+        <TopBar title="Exportar" />
+        <View style={[st.body, { gap: 14 }]}>
+          <TerryLine text="No celular, é aqui que eu gero o MP4 vertical e você salva na galeria ou compartilha." />
+          <Text style={T.small}>
+            O simulador não exporta: a montagem do MP4 ({formatDuration(total)}, 1080×1920) usa o módulo nativo do app. Instale o APK no Android para testar.
+          </Text>
+        </View>
+        <Footer>
+          <Button label="Voltar para o editor" onPress={() => router.back()} />
+        </Footer>
+      </Screen>
+    );
+  }
+
   const save = async () => {
     if (state.kind !== 'done') return;
     const perm = await requestPermissionsAsync(true);
     if (!perm.granted) {
-      Alert.alert('Sem acesso à galeria', 'Libera nos ajustes pra salvar o vídeo, ou usa Compartilhar.');
+      showDialog('Sem acesso à galeria', 'Libera nos ajustes pra salvar o vídeo, ou usa Compartilhar.');
       return;
     }
     try {
@@ -71,7 +89,7 @@ export default function Export() {
       setSaved(true);
       updateProject(p.id, (cur) => (cur.lastExport ? { ...cur, lastExport: { ...cur.lastExport, savedToGallery: true } } : cur));
     } catch (e) {
-      Alert.alert('Não consegui salvar', e instanceof Error ? e.message : 'Tenta de novo.');
+      showDialog('Não consegui salvar', e instanceof Error ? e.message : 'Tenta de novo.');
     }
   };
 
@@ -106,7 +124,7 @@ export default function Export() {
         {state.kind === 'done' ? (
           <View style={{ alignItems: 'center', gap: 14 }}>
             <View style={st.video}>
-              <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls />
+              <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls />
             </View>
             <TerryLine text={terry.exportDone(saved)} style={{ alignSelf: 'stretch' }} />
           </View>

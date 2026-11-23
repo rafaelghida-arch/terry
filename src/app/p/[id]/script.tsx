@@ -2,7 +2,8 @@ import { Asset } from 'expo-asset';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { showDialog } from '../../../ui/dialog';
 import { terry } from '../../../domain/terry';
 import { buildTimeline, formatDuration } from '../../../domain/timeline';
 import type { Scene } from '../../../domain/types';
@@ -17,7 +18,7 @@ import {
   updateClip,
   updateScene,
 } from '../../../services/flows';
-import { createClip, NativeMissingError } from '../../../services/media';
+import { createClip, isSimulator, NativeMissingError } from '../../../services/media';
 import { updateProject, useProject } from '../../../state/store';
 import { Icon } from '../../../ui/icons';
 import { Button, Footer, ProgressBar, Screen, TerryLine, Thumb, TopBar } from '../../../ui/kit';
@@ -66,7 +67,7 @@ export default function ScriptBoard() {
       const msg = await assignClip(p.id, scene.id, clip);
       setFlash(msg);
     } catch (e) {
-      Alert.alert('Não deu pra usar esse vídeo', e instanceof NativeMissingError ? e.message : 'Tenta outro arquivo.');
+      showDialog('Não deu pra usar esse vídeo', e instanceof NativeMissingError ? e.message : 'Tenta outro arquivo.');
     } finally {
       setBusyScene(null);
     }
@@ -89,7 +90,7 @@ export default function ScriptBoard() {
     };
     if (!tl.missing.length) return go();
     const fachada = tl.missing.length === 1 && tl.missing[0].role === 'fachada';
-    Alert.alert(
+    showDialog(
       fachada ? 'Falta a fachada' : `Faltam ${tl.missing.length} tomadas`,
       fachada ? 'Quer usar o corte sem a fachada ou gravar essa parte?' : 'Dá pra montar sem elas e gravar depois.',
       [
@@ -100,7 +101,7 @@ export default function ScriptBoard() {
   };
 
   const confirmDelete = (scene: Scene) =>
-    Alert.alert('Excluir tomada?', scene.clipId ? 'O clipe dessa tomada também sai do projeto.' : undefined, [
+    showDialog('Excluir tomada?', scene.clipId ? 'O clipe dessa tomada também sai do projeto.' : undefined, [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Excluir', style: 'destructive', onPress: () => deleteScene(p.id, scene.id) },
     ]);
@@ -205,7 +206,7 @@ export default function ScriptBoard() {
                     {!clip && p.scriptApproved ? (
                       <MiniAction label={skipped ? 'Incluir' : 'Montar sem'} icon={<Icon.Skip size={18} />} onPress={() => toggleSkip(p.id, scene.id, !skipped)} />
                     ) : null}
-                    {p.isDemo && !clip ? <MiniAction label="Clipe exemplo" icon={<Icon.Film size={18} />} onPress={() => fromDemo(scene)} /> : null}
+                    {(p.isDemo || isSimulator) && !clip ? <MiniAction label="Clipe exemplo" icon={<Icon.Film size={18} />} onPress={() => fromDemo(scene)} /> : null}
                     <MiniAction label="Excluir" icon={<Icon.Trash size={18} color={C.danger} />} onPress={() => confirmDelete(scene)} />
                   </View>
                 </View>

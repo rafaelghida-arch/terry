@@ -91,8 +91,8 @@ export function TrimSheet({ clip, visible, onClose, onSave, suggestion }: {
     >
       <View style={{ gap: 14 }}>
         {suggestion ? <Text style={T.small}>{suggestion}</Text> : null}
-        <View style={[st.preview, { aspectRatio: portrait ? 9 / 16 : 16 / 9, height: portrait ? 260 : undefined }]}>
-          <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls={false} />
+        <View style={[st.preview, portrait ? { height: 260, width: 260 * (clip.width / clip.height) } : { width: '100%', aspectRatio: clip.width / clip.height }]}>
+          <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls={false} />
         </View>
         <View style={st.strip} onLayout={(e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width)}>
           <View style={st.frames}>
@@ -124,7 +124,7 @@ export function TrimSheet({ clip, visible, onClose, onSave, suggestion }: {
 }
 
 const st = StyleSheet.create({
-  preview: { alignSelf: 'center', width: '100%', maxWidth: '100%', backgroundColor: '#000', borderRadius: R.m, overflow: 'hidden' },
+  preview: { alignSelf: 'center', maxWidth: '100%', backgroundColor: '#000', borderRadius: R.m, overflow: 'hidden' },
   strip: { height: 56, justifyContent: 'center', marginHorizontal: HANDLE / 2 },
   frames: { flexDirection: 'row', height: 48, borderRadius: 6, overflow: 'hidden', backgroundColor: C.surface2 },
   frame: { flex: 1, height: 48, backgroundColor: C.surface2 },

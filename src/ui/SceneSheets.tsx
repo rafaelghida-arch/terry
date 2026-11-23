@@ -79,8 +79,8 @@ export function ClipPlayerSheet({ clip, visible, onClose }: { clip: Clip | undef
   if (!clip) return null;
   return (
     <Sheet visible={visible} onClose={onClose} title="Clipe gravado">
-      <View style={[st.video, { aspectRatio: clip.width && clip.height ? clip.width / clip.height : 9 / 16 }]}>
-        <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls />
+      <View style={[st.video, clip.height >= clip.width ? { height: 400, width: 400 * (clip.width / clip.height || 9 / 16) } : { width: '100%', aspectRatio: clip.width / clip.height }]}>
+        <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls />
       </View>
     </Sheet>
   );
@@ -88,5 +88,5 @@ export function ClipPlayerSheet({ clip, visible, onClose }: { clip: Clip | undef
 
 const st = StyleSheet.create({
   input: { backgroundColor: C.surface2, borderRadius: R.m, color: C.text, fontSize: 15, paddingHorizontal: 12, paddingVertical: 10, textAlignVertical: 'top' },
-  video: { maxHeight: 420, alignSelf: 'center', width: '100%', backgroundColor: '#000', borderRadius: R.m, overflow: 'hidden' },
+  video: { alignSelf: 'center', maxWidth: '100%', backgroundColor: '#000', borderRadius: R.m, overflow: 'hidden' },
 });

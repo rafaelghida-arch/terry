@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Image,
   Modal,
   Pressable,
@@ -14,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, TerryMark } from './icons';
+import { usePortal } from './simulator';
 import { C, R, T } from './theme';
 
 export function Screen({ children, edges = ['top', 'bottom'] }: { children: ReactNode; edges?: ('top' | 'bottom')[] }) {
@@ -99,10 +101,25 @@ export function ToolButton({ label, icon, onPress, active, disabled }: { label: 
   );
 }
 
-export function Sheet({ visible, onClose, title, children, action }: { visible: boolean; onClose: () => void; title: string; children: ReactNode; action?: ReactNode }) {
+export function Sheet(props: { visible: boolean; onClose: () => void; title: string; children: ReactNode; action?: ReactNode }) {
+  if (Platform.OS === 'web') return <WebSheet {...props} />;
+  return (
+    <Modal visible={props.visible} transparent animationType="slide" onRequestClose={props.onClose}>
+      <SheetBody {...props} />
+    </Modal>
+  );
+}
+
+/** No simulador o painel sobe dentro da tela do celular desenhado. */
+function WebSheet(props: { visible: boolean; onClose: () => void; title: string; children: ReactNode; action?: ReactNode }) {
+  usePortal(props.visible ? <SheetBody {...props} /> : null);
+  return null;
+}
+
+function SheetBody({ onClose, title, children, action }: { onClose: () => void; title: string; children: ReactNode; action?: ReactNode }) {
   const insets = useSafeAreaInsets();
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <>
       <Pressable style={s.backdrop} onPress={onClose} />
       <View style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
         <View style={s.grabber} />
@@ -117,7 +134,7 @@ export function Sheet({ visible, onClose, title, children, action }: { visible: 
           {children}
         </ScrollView>
       </View>
-    </Modal>
+    </>
   );
 }
 

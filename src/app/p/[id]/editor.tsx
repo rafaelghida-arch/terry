@@ -1,7 +1,8 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { VideoView } from 'expo-video';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type ScrollViewInstance } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
+import { useScreen } from '../../../ui/simulator';
 import { terry } from '../../../domain/terry';
 import { buildTimeline, cropRectFor, formatPrecise } from '../../../domain/timeline';
 import type { Clip } from '../../../domain/types';
@@ -38,7 +39,7 @@ function CroppedPreview({ clip, player, width, height }: { clip?: Clip; player: 
 export default function Editor() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const p = useProject(id);
-  const { width: screenW, height: screenH } = useWindowDimensions();
+  const { width: screenW, height: screenH } = useScreen();
   const [sheet, setSheet] = useState<null | 'trim' | 'frame' | 'audio' | 'narration'>(null);
   const [selected, setSelected] = useState(0);
   const [showReview, setShowReview] = useState(true);

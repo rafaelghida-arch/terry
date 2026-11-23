@@ -16,6 +16,7 @@ export async function keepNarration(projectId: string, uri: string): Promise<str
   return importFile(uri, mediaDir(projectId, 'audio'), `${newId('narracao')}.${ext}`);
 }
 
+export const isSimulator = false;
 export const nativeMediaAvailable = () => TerryMedia != null;
 
 export class NativeMissingError extends Error {

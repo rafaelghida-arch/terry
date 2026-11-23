@@ -1,6 +1,7 @@
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder } from 'expo-audio';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, PanResponder, StyleSheet, Text, View } from 'react-native';
+import { Image, PanResponder, StyleSheet, Text, View } from 'react-native';
+import { showDialog } from './dialog';
 import { cropRectFor, framingFromCropCenter, formatPrecise } from '../domain/timeline';
 import type { Clip, Framing } from '../domain/types';
 import { Icon } from './icons';
@@ -150,7 +151,7 @@ export function NarrationSheet({ visible, onClose, total, existing, onStartPrevi
   const start = async () => {
     const perm = await requestRecordingPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Microfone bloqueado', 'Libera o microfone nos ajustes pra gravar a narração.');
+      showDialog('Microfone bloqueado', 'Libera o microfone nos ajustes pra gravar a narração.');
       return;
     }
     await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });

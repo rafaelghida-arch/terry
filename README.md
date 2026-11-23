@@ -8,6 +8,19 @@ O amigo de filmagem de quem cria vídeo de gastronomia. Você mostra de 1 a 3 v�
 
 ---
 
+## Simulador no computador
+
+O TERRY também roda no navegador, dentro de uma moldura de celular. Isso serve para ver as telas e percorrer o fluxo sem instalar nada.
+
+- **Online:** https://rafaelghida-arch.github.io/terry/ (publicado pelo workflow `Simulador web`; é preciso ativar uma vez em *Settings → Pages → Source: GitHub Actions*).
+- **Local:**
+
+```bash
+npx expo start --web
+```
+
+Funciona no simulador: projetos, referências escolhidas do computador (com análise de ritmo e som feita no navegador), roteiro, tomadas com a Galeria ou o Clipe exemplo, editor, Aparar e Enquadrar. Só funcionam no celular: câmera, narração e exportação do MP4. No simulador, os rascunhos ficam no navegador e os vídeos escolhidos não sobrevivem a um recarregamento da página.
+
 ## Testar no celular
 
 O TERRY usa código nativo, então **não roda no Expo Go**. É preciso um *development build*, instalado uma vez. Depois disso, as mudanças de JavaScript chegam por recarregamento rápido.

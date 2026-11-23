@@ -3,11 +3,12 @@ import * as ImagePicker from 'expo-image-picker';
 import { useKeepAwake } from 'expo-keep-awake';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import { showDialog } from '../../../ui/dialog';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { terry } from '../../../domain/terry';
 import { assignClip } from '../../../services/flows';
-import { createClip, NativeMissingError } from '../../../services/media';
+import { createClip, isSimulator, NativeMissingError } from '../../../services/media';
 import { getProject, updateProject, useProject } from '../../../state/store';
 import { Icon, TerryMark } from '../../../ui/icons';
 import { Button } from '../../../ui/kit';
@@ -58,12 +59,16 @@ export default function Record() {
       updateProject(p.id, (x) => ({ ...x, selectedSceneId: next?.id ?? scene.id }));
       router.back();
     } catch (e) {
-      Alert.alert('Não consegui salvar o clipe', e instanceof NativeMissingError ? e.message : 'Tenta gravar de novo.');
+      showDialog('Não consegui salvar o clipe', e instanceof NativeMissingError ? e.message : 'Tenta gravar de novo.');
       setSaving(false);
     }
   };
 
   const toggleRecord = async () => {
+    if (isSimulator) {
+      showDialog('Câmera só no celular', 'No simulador, use a Galeria para escolher um vídeo do computador.');
+      return;
+    }
     if (!cam.current || !ready) return;
     if (recording) {
       cam.current.stopRecording();
@@ -78,7 +83,7 @@ export default function Record() {
       if (res?.uri) await save(res.uri, 'camera');
     } catch {
       setRecording(false);
-      Alert.alert('A gravação parou', 'Tenta de novo.');
+      showDialog('A gravação parou', 'Tenta de novo.');
     }
   };
 
@@ -87,7 +92,7 @@ export default function Record() {
     if (!res.canceled && res.assets[0]) await save(res.assets[0].uri, 'galeria');
   };
 
-  const needPerm = !camPerm?.granted || !micPerm?.granted;
+  const needPerm = !isSimulator && (!camPerm?.granted || !micPerm?.granted);
   const target = scene.duration;
   const overTarget = elapsed >= target;
 
@@ -114,7 +119,13 @@ export default function Record() {
       </View>
 
       <View style={st.cameraWrap}>
-        {needPerm ? (
+        {isSimulator ? (
+          <View style={st.perm}>
+            <Icon.Camera size={40} color={C.mute} />
+            <Text style={[T.body, { textAlign: 'center' }]}>Aqui entra a câmera do celular.</Text>
+            <Text style={[T.small, { textAlign: 'center' }]}>No simulador, toque em Galeria para escolher um vídeo do computador.</Text>
+          </View>
+        ) : needPerm ? (
           <View style={st.perm}>
             <Text style={[T.body, { textAlign: 'center' }]}>Preciso da câmera e do microfone pra gravar a tomada com som.</Text>
             <Button
@@ -162,7 +173,7 @@ export default function Record() {
           <Icon.Gallery size={26} />
           <Text style={st.sideText}>Galeria</Text>
         </Pressable>
-        <Pressable onPress={toggleRecord} disabled={!ready || saving || needPerm} style={[st.recOuter, (!ready || needPerm) && { opacity: 0.4 }]} accessibilityLabel={recording ? 'Parar' : 'Gravar'}>
+        <Pressable onPress={toggleRecord} disabled={(!ready && !isSimulator) || saving || needPerm} style={[st.recOuter, ((!ready && !isSimulator) || needPerm) && { opacity: 0.4 }]} accessibilityLabel={recording ? 'Parar' : 'Gravar'}>
           <View style={recording ? st.recStop : st.recInner} />
         </Pressable>
         <Pressable onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))} disabled={recording} style={[st.side, recording && { opacity: 0.3 }]} accessibilityLabel="Virar câmera">

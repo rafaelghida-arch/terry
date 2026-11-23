@@ -1,9 +1,11 @@
 import { router } from 'expo-router';
-import { Alert, FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useScreen } from '../ui/simulator';
+import { showDialog } from '../ui/dialog';
 import { buildTimeline, formatDuration } from '../domain/timeline';
 import type { Project } from '../domain/types';
 import { createDemoProject } from '../services/flows';
-import { nativeMediaAvailable } from '../services/media';
+import { isSimulator, nativeMediaAvailable } from '../services/media';
 import { removeProject, useProjects } from '../state/store';
 import { Icon, TerryMark } from '../ui/icons';
 import { Badge, Screen, TerryLine, Thumb } from '../ui/kit';
@@ -22,12 +24,12 @@ function durationOf(p: Project) {
 
 export default function Home() {
   const projects = useProjects();
-  const { width } = useWindowDimensions();
+  const { width } = useScreen();
   const gap = 10;
   const colW = (width - 32 - gap * 2) / 3;
 
   const confirmDelete = (p: Project) =>
-    Alert.alert('Apagar projeto?', `“${p.title}” e os clipes gravados nele saem do aparelho.`, [
+    showDialog('Apagar projeto?', `“${p.title}” e os clipes gravados nele saem do aparelho.`, [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Apagar', style: 'destructive', onPress: () => removeProject(p.id) },
     ]);
@@ -56,6 +58,10 @@ export default function Home() {
                 <Text style={[T.small, { color: '#0B4A52' }]}>Referências, roteiro e gravação</Text>
               </View>
             </Pressable>
+
+            {isSimulator ? (
+              <TerryLine text="Você está no simulador. Dá pra percorrer o fluxo com os clipes de exemplo e vídeos do computador. Câmera e exportação do MP4 funcionam no app do celular." />
+            ) : null}
 
             {!nativeMediaAvailable() ? (
               <TerryLine text="Esse app está rodando sem o módulo de vídeo do TERRY. Para analisar e exportar, abra pelo development build (veja o README)." />

@@ -1,7 +1,8 @@
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { showDialog } from '../../../ui/dialog';
 import { terry } from '../../../domain/terry';
 import { formatDuration } from '../../../domain/timeline';
 import { importReference, NativeMissingError } from '../../../services/media';
@@ -33,7 +34,7 @@ export default function References() {
         updateProject(p.id, (cur) => ({ ...cur, references: [...cur.references, ref].slice(0, 3) }));
       }
     } catch (e) {
-      Alert.alert('Não deu pra abrir esse vídeo', e instanceof NativeMissingError ? e.message : 'Tenta outro arquivo da galeria.');
+      showDialog('Não deu pra abrir esse vídeo', e instanceof NativeMissingError ? e.message : 'Tenta outro arquivo da galeria.');
     } finally {
       setBusy(false);
     }
