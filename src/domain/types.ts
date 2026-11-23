@@ -1,4 +1,7 @@
 // Modelo de dados do TERRY. Tudo aqui é serializável em JSON e fica salvo no aparelho.
+import type { Genre } from './genres';
+
+export type { Genre };
 
 export type AudioMode = 'fala' | 'narracao' | 'ambiente';
 export type TargetDuration = 15 | 30 | 60;
@@ -98,6 +101,8 @@ export type StyleAnalysis = {
   terryLine: string | null;
   /** Ids das referências usadas, para saber quando reaproveitar. */
   referenceIds: string[];
+  /** Gênero que as referências mostram (só com IA). */
+  genre?: { detected: Genre; perReference: Record<string, Genre> };
 };
 
 export type SceneRole =
@@ -110,7 +115,15 @@ export type SceneRole =
   | 'reacao'
   | 'fachada'
   | 'contexto'
-  | 'fechamento';
+  | 'fechamento'
+  | 'antes'
+  | 'demonstracao'
+  | 'passo'
+  | 'resultado'
+  | 'produto'
+  | 'prova'
+  | 'argumento'
+  | 'chamada';
 
 export type Scene = {
   id: string;
@@ -151,6 +164,18 @@ export type Clip = {
   trimEnd: number;
   framing: Framing;
   createdAt: number;
+  /** Legendas no tempo do arquivo original: acompanham o clipe ao aparar e reordenar. */
+  captions?: CaptionCue[];
+};
+
+export type CaptionCue = { id: string; start: number; end: number; text: string };
+
+export type CaptionStyle = 'faixa' | 'contorno';
+
+export type CaptionSettings = {
+  enabled: boolean;
+  style: CaptionStyle;
+  position: 'baixo' | 'meio';
 };
 
 export type ExportRecord = {
@@ -169,6 +194,8 @@ export type Project = {
   isDemo: boolean;
   stage: ProjectStage;
   brief: string;
+  /** Tipo de conteúdo. Projetos antigos não têm: tratados como gastronomia. */
+  genre?: Genre;
   targetDuration: TargetDuration;
   audioModes: AudioMode[];
   references: Reference[];
@@ -187,6 +214,7 @@ export type Project = {
     narrationVolume: number;
     narration?: { uri: string; duration: number };
   };
+  captions?: CaptionSettings;
   lastExport?: ExportRecord;
   coverUri?: string;
   selectedSceneId?: string;

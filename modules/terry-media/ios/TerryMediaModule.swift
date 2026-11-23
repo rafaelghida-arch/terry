@@ -355,6 +355,33 @@ public class TerryMediaModule: Module {
     videoComposition.frameDuration = CMTime(value: 1, timescale: fps)
     videoComposition.instructions = instructions
 
+    // Legendas (opcionais): camadas de texto que aparecem só no intervalo de cada fala.
+    if let cap = spec["captions"] as? [String: Any], let cues = cap["cues"] as? [[String: Any]], !cues.isEmpty {
+      let parent = CALayer()
+      parent.frame = CGRect(origin: .zero, size: render)
+      let videoLayer = CALayer()
+      videoLayer.frame = parent.frame
+      parent.addSublayer(videoLayer)
+      let style = (cap["style"] as? String) ?? "faixa"
+      let position = (cap["position"] as? String) ?? "baixo"
+      for cue in cues {
+        guard let text = cue["text"] as? String, !text.isEmpty,
+              let start = cue["start"] as? Double, let end = cue["end"] as? Double, end > start else { continue }
+        let layer = TerryMediaModule.captionLayer(text: text, style: style, position: position, render: render)
+        layer.opacity = 0
+        let show = CABasicAnimation(keyPath: "opacity")
+        show.fromValue = 1
+        show.toValue = 1
+        show.beginTime = AVCoreAnimationBeginTimeAtZero + start
+        show.duration = end - start
+        show.isRemovedOnCompletion = true
+        show.fillMode = .removed
+        layer.add(show, forKey: "show")
+        parent.addSublayer(layer)
+      }
+      videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer, in: parent)
+    }
+
     let audioMix = AVMutableAudioMix()
     audioMix.inputParameters = mixParams
 
@@ -388,6 +415,47 @@ public class TerryMediaModule: Module {
     default:
       throw session.error ?? NSError(domain: "TerryMedia", code: 7, userInfo: [NSLocalizedDescriptionKey: "Falha na exportação"])
     }
+  }
+
+  /// Uma legenda: texto branco pesado, centralizado, com faixa escura ou contorno.
+  /// Coordenadas do AVVideoCompositionCoreAnimationTool: origem embaixo à esquerda.
+  static func captionLayer(text: String, style: String, position: String, render: CGSize) -> CALayer {
+    let fontSize = render.width * 0.054
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.alignment = .center
+    paragraph.lineBreakMode = .byWordWrapping
+    var attrs: [NSAttributedString.Key: Any] = [
+      .font: UIFont.systemFont(ofSize: fontSize, weight: .heavy),
+      .foregroundColor: UIColor.white,
+      .paragraphStyle: paragraph,
+    ]
+    if style == "contorno" {
+      attrs[.strokeColor] = UIColor.black
+      attrs[.strokeWidth] = -7.0
+    }
+    let attributed = NSAttributedString(string: text, attributes: attrs)
+    let maxWidth = render.width * 0.82
+    let bounds = attributed.boundingRect(with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),
+                                         options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+    let padH = fontSize * 0.55
+    let padV = fontSize * 0.3
+    let w = ceil(bounds.width) + padH * 2
+    let h = ceil(bounds.height) + padV * 2
+    let y = position == "meio" ? (render.height - h) / 2 : render.height * 0.15
+    let box = CALayer()
+    box.frame = CGRect(x: (render.width - w) / 2, y: y, width: w, height: h)
+    if style == "faixa" {
+      box.backgroundColor = UIColor(white: 0, alpha: 0.62).cgColor
+      box.cornerRadius = fontSize * 0.35
+    }
+    let textLayer = CATextLayer()
+    textLayer.string = attributed
+    textLayer.isWrapped = true
+    textLayer.alignmentMode = .center
+    textLayer.contentsScale = 1
+    textLayer.frame = CGRect(x: padH, y: padV, width: ceil(bounds.width), height: ceil(bounds.height))
+    box.addSublayer(textLayer)
+    return box
   }
 
   private func startProgress(_ session: AVAssetExportSession) {

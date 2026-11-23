@@ -8,8 +8,9 @@ import { createDemoProject } from '../services/flows';
 import { isSimulator, nativeMediaAvailable } from '../services/media';
 import { removeProject, useProjects } from '../state/store';
 import { Icon, TerryMark } from '../ui/icons';
-import { Badge, Screen, TerryLine, Thumb } from '../ui/kit';
-import { C, R, T } from '../ui/theme';
+import { Screen, TerryLine, Thumb } from '../ui/kit';
+import { GENRE_INFO } from '../domain/genres';
+import { C, F, R, T } from '../ui/theme';
 import { routeFor } from '../navigation';
 
 function coverOf(p: Project) {
@@ -25,8 +26,8 @@ function durationOf(p: Project) {
 export default function Home() {
   const projects = useProjects();
   const { width } = useScreen();
-  const gap = 10;
-  const colW = (width - 32 - gap * 2) / 3;
+  const gap = 12;
+  const colW = (width - 32 - gap) / 2;
 
   const confirmDelete = (p: Project) =>
     showDialog('Apagar projeto?', `“${p.title}” e os clipes gravados nele saem do aparelho.`, [
@@ -38,26 +39,36 @@ export default function Home() {
     <Screen>
       <View style={st.header}>
         <TerryMark size={30} />
-        <Text style={st.logo}>TERRY</Text>
+        <Text style={st.logo}>terry</Text>
       </View>
 
       <FlatList
         data={projects}
         keyExtractor={(p) => p.id}
-        numColumns={3}
+        numColumns={2}
         columnWrapperStyle={{ gap }}
-        contentContainerStyle={{ paddingHorizontal: 16, gap: 14, paddingBottom: 40 }}
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 18, paddingBottom: 40 }}
         ListHeaderComponent={
-          <View style={{ gap: 14, marginBottom: 6 }}>
-            <Pressable onPress={() => router.push('/new')} style={({ pressed }) => [st.newBtn, pressed && { opacity: 0.8 }]}>
-              <View style={st.plus}>
-                <Icon.Plus size={26} color={C.accentInk} />
-              </View>
-              <View>
+          <View style={{ gap: 16, marginBottom: 4 }}>
+            <Text style={st.hello}>{projects.length ? 'O que vamos gravar agora?' : 'Bora gravar alguma coisa?'}</Text>
+            <View style={st.actions}>
+              <Pressable onPress={() => router.push('/new')} style={({ pressed }) => [st.newBtn, pressed && { opacity: 0.85 }]}>
+                <View style={st.plus}>
+                  <Icon.Plus size={22} color={C.accent} />
+                </View>
                 <Text style={st.newText}>Novo projeto</Text>
-                <Text style={[T.small, { color: '#0B4A52' }]}>Referências, roteiro e gravação</Text>
-              </View>
-            </Pressable>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const p = createDemoProject();
+                  router.push(`/p/${p.id}/hooks`);
+                }}
+                style={({ pressed }) => [st.demoBtn, pressed && { opacity: 0.7 }]}
+              >
+                <Icon.Film size={18} />
+                <Text style={st.demoText}>Demonstração</Text>
+              </Pressable>
+            </View>
 
             {isSimulator ? (
               <TerryLine text="Você está no simulador. Dá pra percorrer o fluxo com os clipes de exemplo e vídeos do computador. Câmera e exportação do MP4 funcionam no app do celular." />
@@ -68,21 +79,10 @@ export default function Home() {
             ) : null}
 
             {projects.length === 0 ? (
-              <TerryLine text="Me mostra uns vídeos que têm a sua cara. Ou abre o projeto de demonstração pra testar gravar, montar e exportar." />
+              <TerryLine text="Me conta o que você grava e me mostra uns vídeos que têm a sua cara. Comida, make, review, opinião… eu me ajusto." />
             ) : null}
 
-            <View style={st.rowBetween}>
-              <Text style={T.h3}>Projetos</Text>
-              <Pressable
-                onPress={() => {
-                  const p = createDemoProject();
-                  router.push(`/p/${p.id}/hooks`);
-                }}
-                hitSlop={8}
-              >
-                <Text style={st.link}>Abrir demonstração</Text>
-              </Pressable>
-            </View>
+            {projects.length ? <Text style={st.section}>Seus projetos</Text> : null}
           </View>
         }
         renderItem={({ item }) => (
@@ -92,29 +92,26 @@ export default function Home() {
             style={{ width: colW }}
             accessibilityHint="Toque e segure para apagar"
           >
-            <Thumb uri={coverOf(item)} style={{ width: colW, height: colW * 1.5, borderRadius: R.m }}>
+            <Thumb uri={coverOf(item)} style={{ width: colW, height: colW * 1.32, borderRadius: R.l }}>
               {!coverOf(item) ? (
                 <View style={st.emptyCover}>
-                  <Icon.Film size={24} color={C.mute} />
+                  <Icon.Film size={26} color={C.mute} />
                 </View>
               ) : null}
+              <View style={st.tags}>
+                <View style={st.tag}>
+                  <Text style={st.tagText}>{item.isDemo ? 'DEMO' : GENRE_INFO[item.genre ?? 'gastronomia'].short.toUpperCase()}</Text>
+                </View>
+              </View>
               <View style={st.dur}>
                 <Text style={st.durText}>{durationOf(item)}</Text>
               </View>
-              {item.isDemo ? (
-                <View style={{ position: 'absolute', top: 6, left: 6 }}>
-                  <Badge label="DEMO" tone="accent" />
-                </View>
-              ) : null}
             </Thumb>
             <Text numberOfLines={2} style={st.title}>
               {item.title}
             </Text>
           </Pressable>
         )}
-        ListEmptyComponent={
-          <Text style={[T.small, { textAlign: 'center', marginTop: 20 }]}>Seus projetos aparecem aqui, com a capa do vídeo.</Text>
-        }
       />
     </Screen>
   );
@@ -122,14 +119,20 @@ export default function Home() {
 
 const st = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, height: 56 },
-  logo: { color: C.text, fontSize: 24, fontWeight: '900', letterSpacing: 2 },
-  newBtn: { backgroundColor: C.accent, borderRadius: R.l, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 },
-  plus: { width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.12)', alignItems: 'center', justifyContent: 'center' },
-  newText: { color: C.accentInk, fontSize: 19, fontWeight: '800' },
-  rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
-  link: { color: C.accent, fontWeight: '700', fontSize: 14 },
+  logo: { color: C.text, fontSize: 26, fontFamily: F.display, letterSpacing: -0.5 },
+  hello: { ...T.h1, fontSize: 30, lineHeight: 34, marginTop: 4 },
+  actions: { flexDirection: 'row', gap: 10 },
+  newBtn: { flex: 1, height: 56, backgroundColor: C.accent, borderRadius: R.pill, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 8, paddingRight: 18 },
+  plus: { width: 40, height: 40, borderRadius: 20, backgroundColor: C.accentInk, alignItems: 'center', justifyContent: 'center' },
+  newText: { color: C.accentInk, fontSize: 17, fontFamily: F.display },
+  demoBtn: { height: 56, borderRadius: R.pill, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16 },
+  demoText: { color: C.text, fontSize: 14, fontWeight: '700' },
+  section: { ...T.h2, marginTop: 8 },
   emptyCover: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  dur: { position: 'absolute', right: 6, bottom: 6, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
+  tags: { position: 'absolute', top: 8, left: 8, flexDirection: 'row' },
+  tag: { backgroundColor: 'rgba(13,13,15,0.75)', borderRadius: R.pill, paddingHorizontal: 8, paddingVertical: 3 },
+  tagText: { color: C.accent, fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
+  dur: { position: 'absolute', right: 8, bottom: 8, backgroundColor: 'rgba(13,13,15,0.75)', borderRadius: R.pill, paddingHorizontal: 8, paddingVertical: 3 },
   durText: { color: C.text, fontSize: 11, fontWeight: '700' },
-  title: { color: C.text, fontSize: 13, fontWeight: '600', marginTop: 6 },
+  title: { color: C.text, fontSize: 14, fontWeight: '700', marginTop: 8 },
 });

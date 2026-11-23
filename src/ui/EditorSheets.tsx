@@ -1,9 +1,10 @@
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder } from 'expo-audio';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, PanResponder, StyleSheet, Text, View } from 'react-native';
+import { Image, PanResponder, StyleSheet, Text, View, Pressable, Switch, TextInput } from 'react-native';
 import { showDialog } from './dialog';
+import type { TimelineCue } from '../domain/captions';
 import { cropRectFor, framingFromCropCenter, formatPrecise } from '../domain/timeline';
-import type { Clip, Framing } from '../domain/types';
+import type { CaptionSettings, Clip, Framing } from '../domain/types';
 import { Icon } from './icons';
 import { Button, Chip, Sheet } from './kit';
 import { C, R, T } from './theme';
@@ -196,5 +197,113 @@ export function NarrationSheet({ visible, onClose, total, existing, onStartPrevi
 }
 
 const st = StyleSheet.create({
+  optRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.surface2, borderRadius: R.m, padding: 12 },
+  cue: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.surface2, borderRadius: R.m, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: 'transparent' },
+  cueInput: { flex: 1, color: C.text, fontSize: 15, paddingVertical: 4 },
   recRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.surface2, borderRadius: R.m, padding: 12 },
 });
+
+/** Legendas: liga/desliga, estilo, posição e correção do texto de cada fala. */
+export function CaptionsSheet({ visible, onClose, settings, cues, time, onToggle, onSettings, onEdit, onDelete, onAdd, onSeek, busy }: {
+  visible: boolean;
+  onClose: () => void;
+  settings: CaptionSettings;
+  cues: TimelineCue[];
+  time: number;
+  onToggle: (on: boolean) => void;
+  onSettings: (patch: Partial<CaptionSettings>) => void;
+  onEdit: (cue: TimelineCue, text: string) => void;
+  onDelete: (cue: TimelineCue) => void;
+  onAdd: () => void;
+  onSeek: (t: number) => void;
+  busy?: boolean;
+}) {
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Legendas">
+      <View style={{ gap: 14 }}>
+        <View style={st.toggleRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={T.h3}>Mostrar legendas</Text>
+            <Text style={T.small}>Opcional. Sem animação, só o texto na hora certa.</Text>
+          </View>
+          <Switch
+            value={settings.enabled}
+            onValueChange={onToggle}
+            disabled={busy}
+            trackColor={{ false: C.surface3, true: C.accent }}
+            thumbColor={settings.enabled ? C.accentInk : C.dim}
+          />
+        </View>
+
+        {settings.enabled ? (
+          <>
+            <View style={st.optRow}>
+              <Text style={[T.tiny, { width: 64 }]}>ESTILO</Text>
+              <Chip label="Faixa" selected={settings.style === 'faixa'} onPress={() => onSettings({ style: 'faixa' })} />
+              <Chip label="Contorno" selected={settings.style === 'contorno'} onPress={() => onSettings({ style: 'contorno' })} />
+            </View>
+            <View style={st.optRow}>
+              <Text style={[T.tiny, { width: 64 }]}>POSIÇÃO</Text>
+              <Chip label="Embaixo" selected={settings.position === 'baixo'} onPress={() => onSettings({ position: 'baixo' })} />
+              <Chip label="No meio" selected={settings.position === 'meio'} onPress={() => onSettings({ position: 'meio' })} />
+            </View>
+
+            <Text style={T.small}>
+              {cues.length
+                ? 'O rascunho saiu das falas do roteiro. Toque no texto para corrigir com o que você falou de verdade.'
+                : 'Nenhuma fala com legenda ainda. Posiciona a prévia e acrescenta.'}
+            </Text>
+
+            <View style={{ gap: 8 }}>
+              {cues.map((c) => (
+                <CueRow key={c.cueId} cue={c} active={time >= c.start && time < c.end} onEdit={onEdit} onDelete={onDelete} onSeek={onSeek} />
+              ))}
+            </View>
+            <Button kind="ghost" small label={`Acrescentar legenda em ${formatPrecise(time)}`} icon={<Icon.Plus size={16} />} onPress={onAdd} />
+          </>
+        ) : null}
+      </View>
+    </Sheet>
+  );
+}
+
+function CueRow({ cue, active, onEdit, onDelete, onSeek }: { cue: TimelineCue; active: boolean; onEdit: (c: TimelineCue, t: string) => void; onDelete: (c: TimelineCue) => void; onSeek: (t: number) => void }) {
+  const [text, setText] = useState(cue.text);
+  useEffect(() => setText(cue.text), [cue.text]);
+  return (
+    <View style={[st.cue, active && { borderColor: C.accent }]}>
+      <Pressable onPress={() => onSeek(cue.start + 0.01)} hitSlop={6}>
+        <Text style={[T.tiny, active && { color: C.accent }]}>{formatPrecise(cue.start)}</Text>
+      </Pressable>
+      <TextInput
+        value={text}
+        onChangeText={setText}
+        onEndEditing={() => text !== cue.text && onEdit(cue, text)}
+        onBlur={() => text !== cue.text && onEdit(cue, text)}
+        placeholder="Escreve a fala"
+        placeholderTextColor={C.mute}
+        multiline
+        style={st.cueInput}
+      />
+      <Pressable onPress={() => onDelete(cue)} hitSlop={8} accessibilityLabel="Apagar legenda">
+        <Icon.Trash size={18} color={C.mute} />
+      </Pressable>
+    </View>
+  );
+}
+
+/** A legenda por cima da prévia, no mesmo estilo e posição do MP4 exportado. */
+export function CaptionPreview({ text, settings, width, height }: { text?: string; settings: CaptionSettings; width: number; height: number }) {
+  if (!settings.enabled || !text) return null;
+  const fontSize = width * 0.054;
+  const box = settings.style === 'faixa' ? { backgroundColor: 'rgba(0,0,0,0.62)', borderRadius: fontSize * 0.35, paddingHorizontal: fontSize * 0.55, paddingVertical: fontSize * 0.3 } : {};
+  const outline = settings.style === 'contorno' ? { textShadowColor: '#000', textShadowRadius: fontSize * 0.25, textShadowOffset: { width: 0, height: 0 } } : {};
+  return (
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: settings.position === 'meio' ? 'center' : 'flex-end', paddingBottom: settings.position === 'meio' ? 0 : height * 0.15 }]}>
+      <View style={[{ maxWidth: width * 0.86 }, box]}>
+        <Text style={[{ color: '#fff', fontSize, fontWeight: '900', textAlign: 'center' }, outline]}>{text}</Text>
+      </View>
+    </View>
+  );
+}

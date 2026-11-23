@@ -42,6 +42,8 @@ export type NativeExportSpec = {
   fps: number;
   segments: { uri: string; start: number; end: number; crop: NativeCrop; volume: number; hasAudio: boolean }[];
   narration?: { uri: string; volume: number; duration: number };
+  /** Legendas já no tempo do vídeo montado (só quando o criador ativou). */
+  captions?: { cues: { start: number; end: number; text: string }[]; style: 'faixa' | 'contorno'; position: 'baixo' | 'meio' };
 };
 
 export type ExportResult = { uri: string; duration: number };

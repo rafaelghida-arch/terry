@@ -16,7 +16,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, TerryMark } from './icons';
 import { usePortal } from './simulator';
-import { C, R, T } from './theme';
+import { C, F, R, T } from './theme';
 
 export function Screen({ children, edges = ['top', 'bottom'] }: { children: ReactNode; edges?: ('top' | 'bottom')[] }) {
   return (
@@ -75,7 +75,7 @@ export function Button({ label, onPress, kind = 'primary', icon, disabled, loadi
 
 export function Chip({ label, selected, onPress }: { label: string; selected?: boolean; onPress?: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[s.chip, selected && { borderColor: C.accent, backgroundColor: '#0B2A2E' }]}>
+    <Pressable onPress={onPress} style={[s.chip, selected && { borderColor: C.accent, backgroundColor: C.accentSoft }]}>
       <Text style={[s.chipText, selected && { color: C.accent }]}>{label}</Text>
     </Pressable>
   );
@@ -86,8 +86,10 @@ export function TerryLine({ text, style }: { text?: string | null; style?: Style
   if (!text) return null;
   return (
     <View style={[s.terry, style]}>
-      <TerryMark size={26} />
-      <Text style={s.terryText}>{text}</Text>
+      <TerryMark size={28} />
+      <View style={s.bubble}>
+        <Text style={s.terryText}>{text}</Text>
+      </View>
     </View>
   );
 }
@@ -171,21 +173,22 @@ export function Footer({ children }: { children: ReactNode }) {
 export const s = StyleSheet.create({
   topbar: { height: 52, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8 },
   iconBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  topTitle: { ...T.h3, fontSize: 16 },
-  btn: { height: 50, borderRadius: R.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 18 },
-  btnSmall: { height: 38, paddingHorizontal: 12, borderRadius: R.s },
+  topTitle: { fontFamily: F.displayMedium, fontSize: 16, color: C.text },
+  btn: { height: 52, borderRadius: R.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 18 },
+  btnSmall: { height: 40, paddingHorizontal: 14, borderRadius: R.pill },
   btnText: { fontSize: 16, fontWeight: '700' },
   chip: { paddingHorizontal: 14, height: 38, borderRadius: 19, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2, justifyContent: 'center' },
   chipText: { color: C.text, fontSize: 14, fontWeight: '600' },
-  terry: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: C.surface, borderRadius: R.l, padding: 12, borderWidth: 1, borderColor: C.border },
-  terryText: { ...T.body, flex: 1, paddingTop: 2 },
-  tool: { alignItems: 'center', justifyContent: 'center', gap: 4, minWidth: 64, paddingVertical: 6 },
-  toolText: { color: C.dim, fontSize: 11, fontWeight: '600' },
+  terry: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  bubble: { flex: 1, backgroundColor: C.surface2, borderRadius: R.l, borderBottomLeftRadius: 4, paddingHorizontal: 14, paddingVertical: 11 },
+  terryText: { ...T.body },
+  tool: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 6 },
+  toolText: { color: C.dim, fontSize: 10.5, fontWeight: '700', textAlign: 'center' },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   sheet: { backgroundColor: C.surface, borderTopLeftRadius: R.xl, borderTopRightRadius: R.xl, borderTopWidth: 1, borderColor: C.border },
   grabber: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: C.surface3, marginTop: 8 },
   sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
   badge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1, alignSelf: 'flex-start' },
   badgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.4 },
-  footer: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6, borderTopWidth: StyleSheet.hairlineWidth, borderColor: C.border, backgroundColor: C.bg, gap: 10 },
+  footer: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8, backgroundColor: C.bg, gap: 10 },
 });

@@ -1,7 +1,8 @@
 // Roteiro base gerado no aparelho (sem IA). Usa o briefing para os fatos e as
 // features de estilo para a linguagem. Também é o gerador do projeto de demonstração.
 
-import { parseBrief, type BriefFacts } from './brief';
+import { parseBrief, subjectFromBrief, type BriefFacts } from './brief';
+import { GENRE_INFO, PLANS, type Genre, type ShotCtx, type ShotTemplate } from './genres';
 import type { AudioMode, HookOption, Scene, SceneRole, StyleFeatures, TargetDuration } from './types';
 
 export type ScriptContext = {
@@ -9,6 +10,8 @@ export type ScriptContext = {
   features: StyleFeatures;
   targetDuration: TargetDuration;
   audioModes: AudioMode[];
+  /** Tipo de conteúdo; sem ele, gastronomia. */
+  genre?: Genre;
 };
 
 type Approach = 'som' | 'pergunta' | 'opiniao' | 'resultado';
@@ -260,6 +263,7 @@ export function fitDurations(scenes: Scene[], target: number, features: StyleFea
 }
 
 export function generateHooksLocal(ctx: ScriptContext): HookOption[] {
+  if (ctx.genre && ctx.genre !== 'gastronomia') return generateGenreHooks(ctx, ctx.genre);
   const facts = parseBrief(ctx.brief);
   const [a, b] = approachesFor(ctx.features, facts);
   return [a, b].map((approach, i) => {
@@ -278,6 +282,7 @@ export function generateHooksLocal(ctx: ScriptContext): HookOption[] {
 
 /** Gera outra versão de uma cena com a mesma função, preservando id e clipe. */
 export function regenerateSceneLocal(current: Scene, ctx: ScriptContext, variant: number): Scene {
+  if (ctx.genre && ctx.genre !== 'gastronomia') return regenerateGenreScene(current, ctx, ctx.genre, variant);
   const facts = parseBrief(ctx.brief);
   const key =
     current.role === 'gancho'
@@ -294,4 +299,80 @@ export function regenerateSceneLocal(current: Scene, ctx: ScriptContext, variant
 
 export function blankScene(): Scene {
   return scene('detalhe', 'Nova tomada', 'Descreve o que filmar.', 3, 'Som ambiente.');
+}
+
+// ---------------------------------------------------------------------------
+// Outros gêneros: roteiro montado a partir dos planos de cada tipo de conteúdo.
+
+const GUIDANCE = /^(Explica|Comenta|Diz|Nome|Uma frase|O problema|O fato|O que|Um exemplo|O melhor|A primeira|A fala|Fala d)/;
+
+function shotCtx(ctx: ScriptContext, genre: Genre): ShotCtx {
+  const facts = parseBrief(ctx.brief);
+  const subject = subjectFromBrief(ctx.brief, GENRE_INFO[genre].fallbackSubject);
+  return {
+    subject,
+    s: forms(subject),
+    price: facts.price,
+    place: facts.place,
+    modes: ctx.audioModes,
+    wantsVerdict: facts.wantsVerdict,
+  };
+}
+
+function audioForShot(t: ShotTemplate, modes: AudioMode[], text?: string): { audio: string; line?: string } {
+  const fala = modes.includes('fala');
+  const narr = modes.includes('narracao');
+  if (t.audio === 'som') return { audio: audioFor(modes, 'som') };
+  if (t.audio === 'silencio') return { audio: audioFor(modes, 'silencio') };
+  if (t.audio === 'reacao') {
+    return { audio: fala ? 'Sua fala real, na hora. Sem frase pronta.' : narr ? 'Grava sem falar. Você comenta na narração.' : 'Deixa o som do momento.' };
+  }
+  if (!text) return { audio: fala ? 'Fala pra câmera.' : narr ? 'A fala entra na narração.' : 'Sem fala.' };
+  if (GUIDANCE.test(text) && !text.trim().endsWith('?')) return { audio: fala ? `Fala pra câmera: ${lower1(text)}` : narr ? `Na narração: ${lower1(text)}` : text };
+  return { audio: audioFor(modes, 'fala', text), line: fala || narr ? text : undefined };
+}
+
+const lower1 = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
+function buildShot(t: ShotTemplate, sc: ShotCtx): Scene {
+  const { audio, line } = audioForShot(t, sc.modes, t.line?.(sc));
+  return scene(t.role, t.title(sc), t.instruction(sc), t.duration, audio, { line, tip: t.tip });
+}
+
+function wantsTalkFirst(f: StyleFeatures) {
+  return f.opening === 'rosto' || f.opening === 'pergunta' || (f.voiceOnset !== null && f.voiceOnset < 1.5);
+}
+
+export function generateGenreHooks(ctx: ScriptContext, genre: Exclude<Genre, 'gastronomia'>): HookOption[] {
+  const plan = PLANS[genre];
+  const sc = shotCtx(ctx, genre);
+  const talk = wantsTalkFirst(ctx.features);
+  const primary = plan.hooks.find((h) => h.kind === (talk ? 'fala' : 'visual')) ?? plan.hooks[0];
+  const secondary = plan.hooks.find((h) => h !== primary && h.kind !== primary.kind) ?? plan.hooks.find((h) => h !== primary)!;
+  const max = sceneCount(ctx.targetDuration);
+  const bodyCount = Math.max(1, Math.min(plan.body.length, max - 2));
+  return [primary, secondary].map((h, i) => {
+    // O gancho "antes" (beleza) já usa a tomada de antes: não repete no miolo.
+    const body = plan.body.filter((b) => !(h.shot.role === 'antes' && b.role === 'antes')).slice(0, bodyCount);
+    const scenes = [buildShot(h.shot, sc), ...body.map((b) => buildShot(b, sc)), buildShot(plan.ending, sc)];
+    return {
+      id: newId('gancho'),
+      title: h.title(sc),
+      approach: h.approach,
+      why: i === 0 ? (talk ? 'Suas referências entram falando.' : 'Suas referências abrem pela imagem.') : 'Uma alternativa com outro tipo de abertura.',
+      scenes: fitDurations(scenes, ctx.targetDuration, ctx.features),
+    };
+  });
+}
+
+function regenerateGenreScene(current: Scene, ctx: ScriptContext, genre: Exclude<Genre, 'gastronomia'>, variant: number): Scene {
+  const plan = PLANS[genre];
+  const sc = shotCtx(ctx, genre);
+  const pool: ShotTemplate[] =
+    current.role === 'gancho' || current.role === 'antes'
+      ? plan.hooks.map((h) => h.shot)
+      : [...plan.body, plan.ending].filter((t) => t.role === current.role);
+  const candidates = (pool.length ? pool : plan.body).map((t) => buildShot(t, sc)).filter((s) => s.title !== current.title);
+  const pick = candidates.length ? candidates[variant % candidates.length] : buildShot(plan.body[variant % plan.body.length], sc);
+  return { ...pick, id: current.id, clipId: current.clipId, duration: current.duration };
 }

@@ -1,6 +1,6 @@
 # TERRY
 
-O amigo de filmagem de quem cria vídeo de gastronomia. Você mostra de 1 a 3 vídeos de referência e conta o que vai gravar. O TERRY entende o estilo, sugere um roteiro original dividido em tomadas, guarda cada clipe no lugar certo e entrega um primeiro corte vertical (MP4 1080×1920) pronto para exportar.
+O amigo de filmagem de quem cria vídeo curto. Você conta o que vai gravar e mostra de 1 a 3 vídeos de referência. O TERRY reconhece o tipo de conteúdo (gastronomia, beleza e maquiagem, review de produto, marketing e marca, política e opinião, tutorial, vlog, fitness, humor), entende o estilo, sugere um roteiro original dividido em tomadas, guarda cada clipe no lugar certo e entrega um primeiro corte vertical (MP4 1080×1920), com legendas opcionais, pronto para exportar.
 
 - **App:** Expo SDK 58 / React Native 0.88 / TypeScript, Expo Router, iOS e Android.
 - **Vídeo:** módulo nativo próprio (`modules/terry-media`), com AVFoundation no iOS e Media3 Transformer 1.9.1 no Android. Analisa, monta e exporta tudo no aparelho.
@@ -115,6 +115,21 @@ Variáveis do servidor: `ANTHROPIC_API_KEY` (obrigatória para a IA), `PORT` (pa
 
 ---
 
+## Tipos de conteúdo
+
+Cada gênero tem seus ganchos, tomadas, dicas de gravação e regras de conteúdo (`src/domain/genres.ts`). Exemplos:
+
+- **Review:** abre com a pergunta segurando o produto, ou abrindo a caixa. Tem tomada de uso real, um teste que qualquer pessoa entende e o veredito do criador, sem texto escrito.
+- **Política e opinião:** abre com a pergunta central ou com o documento. Separa fato de opinião, mostra a fonte na tela e apresenta o outro lado. O TERRY nunca escreve a posição do criador.
+- **Marketing:** abre com o problema do cliente ou com o produto em destaque. Mostra uma prova real e termina com uma chamada para ação, com a oferta escrita exatamente como no briefing.
+- **Beleza:** abre com o resultado pronto ou com o antes e depois na mesma luz. Mostra os produtos, depois o passo que mais dá errado.
+
+O gênero vem do briefing: o TERRY sugere um enquanto você digita, e você pode trocar. Com a IA ligada, ele também lê o gênero das referências e avisa quando elas parecem de outro tipo.
+
+## Legendas
+
+As legendas são opcionais: no editor, toque em **Legendas** e depois em **Mostrar legendas**. O rascunho sai das falas do roteiro, posicionado onde a voz entra no clipe. Toque no texto para corrigir com o que você falou de verdade, apague o que não quiser e acrescente falas no ponto atual da prévia. Há dois estilos, faixa ou contorno, e duas posições, embaixo ou no meio. As legendas ficam presas ao clipe, então continuam no lugar certo quando você apara ou reordena. Elas aparecem na prévia e saem gravadas no MP4: no iOS por camadas de texto do AVFoundation, no Android por uma sobreposição própria do Media3.
+
 ## Como funciona
 
 ```
@@ -183,4 +198,4 @@ npm --prefix server test
 - **Importação por link** (URL do TikTok) não foi implementada. O fluxo principal usa arquivos salvos na galeria, como pedido.
 - **Transcrição** não é feita. A análise de áudio usa o envelope de volume e a taxa de cruzamentos por zero, que é uma estimativa (fala × chiado). Com a IA ligada, os quadros confirmam rosto e comida.
 - **Prévia do editor:** troca de clipe num único player, então pode haver uma pausa curta entre cortes na prévia. O MP4 exportado não tem essa pausa.
-- **Legendas** não foram incluídas (opcionais no pedido).
+- **Legendas** partem das falas do roteiro, não de transcrição automática do áudio: o criador corrige o texto. Transcrever a fala no próprio aparelho é o próximo passo natural.

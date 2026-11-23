@@ -18,6 +18,7 @@ import androidx.media3.common.Effect
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Crop
+import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
@@ -389,7 +390,20 @@ class TerryMediaModule : Module() {
       sequences.add(EditedMediaItemSequence.withAudioFrom(listOf(edited)))
     }
 
-    val composition = Composition.Builder(sequences).build()
+    val compositionBuilder = Composition.Builder(sequences)
+    (spec["captions"] as? Map<String, Any?>)?.let { cap ->
+      val cues = (cap["cues"] as? List<Map<String, Any?>>).orEmpty().mapNotNull { c ->
+        val text = (c["text"] as? String)?.trim().orEmpty()
+        val start = (num(c["start"], -1.0) * 1_000_000).toLong()
+        val end = (num(c["end"], -1.0) * 1_000_000).toLong()
+        if (text.isEmpty() || start < 0 || end <= start) null else CaptionCue(start, end, text)
+      }
+      if (cues.isNotEmpty()) {
+        val overlay = CaptionOverlay(cues, (cap["style"] as? String) ?: "faixa", (cap["position"] as? String) ?: "baixo", width)
+        compositionBuilder.setEffects(Effects(emptyList(), listOf<Effect>(OverlayEffect(listOf(overlay)))))
+      }
+    }
+    val composition = compositionBuilder.build()
     File(outputPath).parentFile?.mkdirs()
     File(outputPath).delete()
 

@@ -3,6 +3,7 @@ import * as VideoThumbnails from 'expo-video-thumbnails';
 import { Directory, File } from 'expo-file-system';
 import TerryMedia from '../../modules/terry-media';
 import type { Clip, MediaInfo, Project, Reference } from '../domain/types';
+import { timelineCaptions } from '../domain/captions';
 import { metricsFromRaw, cutsFromDiffs, type RawAnalysis } from '../domain/style';
 import { buildExportSpec, DEFAULT_FRAMING } from '../domain/timeline';
 import { importFile, mediaDir } from '../storage/projects';
@@ -139,6 +140,10 @@ export function onExportProgress(cb: (p: number) => void) {
 export async function exportProject(project: Project): Promise<{ uri: string; duration: number }> {
   const out = new File(mediaDir(project.id, 'exports'), `terry_${Date.now()}.mp4`).uri;
   const spec = buildExportSpec(project, out);
+  if (project.captions?.enabled) {
+    const cues = timelineCaptions(project).map(({ start, end, text }) => ({ start, end, text }));
+    if (cues.length) spec.captions = { cues, style: project.captions.style, position: project.captions.position };
+  }
   if (!spec.segments.length) throw new Error('Nenhum clipe gravado ainda.');
   return native().exportComposition(spec);
 }

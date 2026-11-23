@@ -6,6 +6,19 @@ import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
 import { ANALYZE_TASK, SCENE_TASK, SCRIPT_TASK, SYSTEM_BASE } from './prompts';
 
+// Regras por gênero (as mesmas do app, em src/domain/genres.ts).
+const GENRE_RULES: Record<string, string> = {
+  gastronomia: 'Fatos (prato, preço, lugar) só do briefing. A tomada da mordida fica sem fala escrita: a reação é do criador.',
+  beleza: 'Produtos, marcas e preços só do briefing. Nada de prometer resultado de pele ou efeito que o criador não testou. Antes/depois só com a mesma luz e o mesmo ângulo.',
+  review: 'Especificações, preço e onde comprar só do briefing ou do que o criador mostrar. O veredito é do criador, nunca escrito. Se for publi, avisar no começo.',
+  marketing: 'Oferta, prazo, preço e condições só do briefing, escritos do jeito que o criador passou. Uma chamada para ação clara no fim. Nada de afirmação que a marca não possa comprovar.',
+  opiniao: 'Dados, números e citações só do briefing, e com a fonte na tela. Separar fato de opinião. A opinião é do criador: não escreva posição política nem ataques a pessoas.',
+  tutorial: 'Os passos vêm do briefing e da demonstração real do criador. Mostrar o resultado logo no começo. Nada de passo inventado.',
+  vlog: 'Lugares e acontecimentos são os do dia real do criador. Planos curtos de passagem, uma fala sincera no meio, fechamento leve.',
+  fitness: 'Exercícios, séries e repetições só do briefing. Mostrar a execução inteira de lado. Nada de promessa de resultado ou orientação de saúde que o criador não deu.',
+  humor: 'A piada e as falas são do criador; organize o tempo. Ritmo rápido, virada no fim. Nada de piada com grupos ou pessoas reais.',
+};
+
 const PORT = Number(process.env.PORT ?? 8787);
 const MODEL = process.env.TERRY_MODEL ?? 'claude-opus-5-5';
 const APP_TOKEN = process.env.TERRY_APP_TOKEN ?? '';
@@ -19,7 +32,8 @@ const client = hasKey ? new Anthropic() : null;
 const Opening = z.enum(['comida', 'preparo', 'rosto', 'pergunta', 'ambiente', 'fachada']);
 const Ending = z.enum(['veredito', 'mordida', 'corte_seco', 'chamada']);
 const TalkStyle = z.enum(['fala_camera', 'narracao', 'sem_fala', 'misto']);
-const Role = z.enum(['gancho', 'preparo', 'escala', 'revelacao', 'detalhe', 'mordida', 'reacao', 'fachada', 'contexto', 'fechamento']);
+const Role = z.enum(['gancho', 'preparo', 'escala', 'revelacao', 'detalhe', 'mordida', 'reacao', 'fachada', 'contexto', 'fechamento', 'antes', 'demonstracao', 'passo', 'resultado', 'produto', 'prova', 'argumento', 'chamada']);
+const Genre = z.enum(['gastronomia', 'beleza', 'review', 'marketing', 'opiniao', 'tutorial', 'vlog', 'fitness', 'humor']);
 
 const AnalysisSchema = z.object({
   perReference: z.array(
@@ -32,9 +46,11 @@ const AnalysisSchema = z.object({
       faceFirstAt: z.number().nullable(),
       ending: Ending,
       talkStyle: TalkStyle,
+      genre: Genre,
       summary: z.string(),
     }),
   ),
+  genre: Genre,
   observations: z.array(z.object({ text: z.string(), referenceIds: z.array(z.string()) })),
   divergent: z.boolean(),
   terryLine: z.string().nullable(),
@@ -77,6 +93,7 @@ const MetricsIn = z.object({
 
 const AnalyzeIn = z.object({
   brief: z.string().max(2000),
+  genre: Genre.default('gastronomia'),
   references: z
     .array(
       z.object({
@@ -92,6 +109,7 @@ const AnalyzeIn = z.object({
 
 const ContextIn = z.object({
   brief: z.string().max(2000),
+  genre: Genre.default('gastronomia'),
   targetDuration: z.number(),
   audioModes: z.array(z.string()),
   features: z.record(z.string(), z.unknown()),
@@ -140,7 +158,7 @@ async function callClaude<T extends z.ZodType>(route: string, schema: T, content
 async function analyze(body: unknown) {
   const input = AnalyzeIn.parse(body);
   const content: Anthropic.Beta.Messages.BetaContentBlockParam[] = [
-    { type: 'text', text: `Briefing do criador (contexto apenas; não use para descrever as referências):\n${input.brief}` },
+    { type: 'text', text: `Briefing do criador (contexto apenas; não use para descrever as referências):\n${input.brief}\nTipo de conteúdo escolhido pelo criador: ${input.genre}.` },
   ];
   for (const ref of input.references) {
     const m = ref.metrics;
@@ -168,6 +186,7 @@ async function analyze(body: unknown) {
 function contextText(c: z.infer<typeof ContextIn>) {
   return [
     `Briefing (fonte dos fatos): ${c.brief}`,
+    `Tipo de conteúdo: ${c.genre}. Regras do gênero: ${GENRE_RULES[c.genre]}`,
     `Duração alvo: ${c.targetDuration} s. Modos de áudio: ${c.audioModes.join(', ')}.`,
     `Estilo das referências (linguagem): ${JSON.stringify(c.features)}`,
     c.primaryReference ? `Referência principal escolhida pelo criador: ${c.primaryReference}` : '',

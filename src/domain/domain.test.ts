@@ -181,3 +181,62 @@ test('roteiro com prato feminino concorda em gênero', () => {
   assert.ok(!/ o pizza| do pizza| no pizza|esse pizza|Abrir o pizza/.test(text), text);
   assert.match(text, /Abrir a pizza ao meio|Abre a calabresa no forno/);
 });
+
+import { chunkText, draftCaptions, timelineCaptions } from './captions';
+import { detectGenre, GENRE_INFO, GENRES } from './genres';
+import { subjectFromBrief } from './brief';
+
+test('legendas: blocos curtos, sem palavra sozinha no fim', () => {
+  assert.deepEqual(chunkText('Que tamanho de xis vem por 38 reais?'), ['Que tamanho de xis', 'vem por 38 reais?']);
+  const c = chunkText('Isso aqui é um teste com sete palavras');
+  assert.ok(c.every((x) => x.split(' ').length >= 2));
+});
+
+test('legendas: rascunho dentro do trecho do clipe e seguindo a montagem', () => {
+  const c = clip('a', 10, { trimStart: 2, trimEnd: 6 });
+  const cues = draftCaptions(c, { line: 'Que tamanho de xis vem por 38 reais?' }, 2.5);
+  assert.equal(cues[0].start, 2.5);
+  assert.ok(cues.every((q) => q.start >= 2 && q.end <= 6));
+  const scenes = [
+    { id: 's0', role: 'detalhe' as const, title: '', instruction: '', duration: 3, audio: '', clipId: 'b' },
+    { id: 's1', role: 'gancho' as const, title: '', instruction: '', duration: 3, audio: '', clipId: 'a' },
+  ];
+  const p = { scenes, clips: { a: { ...c, captions: cues }, b: clip('b', 3) }, skippedSceneIds: [] };
+  const out = timelineCaptions(p);
+  // o clipe "a" começa em 3 s na montagem; a fala em 2,5 s do arquivo vira 3,5 s
+  assert.equal(out[0].start, 3.5);
+  // aparar corta a legenda que ficou de fora
+  const trimmed = timelineCaptions({ ...p, clips: { ...p.clips, a: { ...p.clips.a, trimEnd: 3 } } });
+  assert.ok(trimmed.every((q) => q.end <= 4.01));
+});
+
+test('gêneros: briefing de exemplo de cada gênero é reconhecido', () => {
+  for (const g of GENRES) assert.equal(detectGenre(GENRE_INFO[g].example).genre, g, g);
+  assert.equal(subjectFromBrief(GENRE_INFO.review.example, 'produto'), 'fone bluetooth');
+  assert.equal(subjectFromBrief(GENRE_INFO.opiniao.example, 'tema'), 'nova lei do IPTU');
+});
+
+test('gêneros: o roteiro muda com o tipo de conteúdo e respeita as regras', () => {
+  const ctx = (g: (typeof GENRES)[number], voice: number | null) => ({
+    brief: GENRE_INFO[g].example, features: { ...defaultFeatures(), voiceOnset: voice }, targetDuration: 30 as const, audioModes: ['fala' as const], genre: g,
+  });
+  const review = generateHooksLocal(ctx('review', 0.4));
+  assert.match(review[0].scenes[0].instruction, /Segura o fone bluetooth ao lado do rosto/);
+  assert.equal(review[0].scenes[0].line, 'Fone bluetooth de 150 reais: vale a pena?');
+  assert.ok(review[0].scenes.some((s) => s.role === 'prova'));
+  // veredito e opinião sem fala escrita
+  for (const g of ['review', 'opiniao', 'beleza'] as const) {
+    const last = generateHooksLocal(ctx(g, 0.4))[0].scenes.at(-1)!;
+    assert.equal(last.line, undefined, g);
+  }
+  const mk = generateHooksLocal(ctx('marketing', null));
+  assert.equal(mk[0].scenes.at(-1)!.role, 'chamada');
+  const op = JSON.stringify(generateHooksLocal(ctx('opiniao', 0.3)));
+  assert.match(op, /fonte/i);
+  // referências que abrem pela imagem trocam o gancho principal
+  const visual = generateHooksLocal(ctx('beleza', null));
+  const talk = generateHooksLocal(ctx('beleza', 0.3));
+  assert.notEqual(visual[0].scenes[0].instruction, talk[0].scenes[0].instruction);
+  // tutorial não vira roteiro de comida
+  assert.ok(!/mordida|chapa|xis/.test(JSON.stringify(generateHooksLocal(ctx('tutorial', 0.3)))));
+});

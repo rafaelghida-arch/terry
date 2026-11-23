@@ -4,7 +4,8 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, 
 import { analysisIsCurrent } from '../../../domain/style';
 import { terry } from '../../../domain/terry';
 import type { Observation } from '../../../domain/types';
-import { addObservation, editObservation, generateScript, runAnalysis } from '../../../services/flows';
+import { addObservation, editObservation, generateScript, runAnalysis, setGenre } from '../../../services/flows';
+import { GENRE_INFO } from '../../../domain/genres';
 import { NativeMissingError } from '../../../services/media';
 import { updateProject, useProject } from '../../../state/store';
 import { Icon } from '../../../ui/icons';
@@ -118,6 +119,16 @@ export default function Style() {
               <Badge label={sourceLabel.toUpperCase()} tone={a.source === 'ia' ? 'accent' : 'mute'} />
             </View>
             {p.analysisNote ? <TerryLine text={p.analysisNote} /> : null}
+
+            {terry.genreMismatch(p) && a.genre ? (
+              <View style={{ gap: 10 }}>
+                <TerryLine text={terry.genreMismatch(p)} />
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Button small style={{ flex: 1 }} label={`Seguir: ${GENRE_INFO[a.genre.detected].short}`} onPress={() => setGenre(p.id, a.genre!.detected)} />
+                  <Button small kind="secondary" style={{ flex: 1 }} label={`Manter: ${GENRE_INFO[p.genre ?? 'gastronomia'].short}`} onPress={() => updateProject(p.id, (cur) => (cur.analysis ? { ...cur, analysis: { ...cur.analysis, genre: { ...cur.analysis.genre!, detected: cur.genre ?? 'gastronomia' } } } : cur))} />
+                </View>
+              </View>
+            ) : null}
 
             {a.divergent && p.references.length > 1 ? (
               <View style={{ gap: 10 }}>

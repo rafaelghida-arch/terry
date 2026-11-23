@@ -1,7 +1,7 @@
 // Cliente do backend do TERRY. A chave da Anthropic fica no servidor; o app manda
 // só quadros JPEG pequenos e medidas — nunca os vídeos inteiros.
 import { File } from 'expo-file-system';
-import type { Reference, Scene, SceneRole, StyleFeatures } from '../domain/types';
+import type { Genre, Reference, Scene, SceneRole, StyleFeatures } from '../domain/types';
 
 const API_URL = (process.env.EXPO_PUBLIC_TERRY_API_URL ?? '').replace(/\/$/, '');
 const APP_TOKEN = process.env.EXPO_PUBLIC_TERRY_APP_TOKEN ?? '';
@@ -60,8 +60,10 @@ export type AiAnalysis = {
     faceFirstAt: number | null;
     ending: StyleFeatures['ending'];
     talkStyle: StyleFeatures['talkStyle'];
+    genre: Genre;
     summary: string;
   }[];
+  genre: Genre;
   observations: { text: string; referenceIds: string[] }[];
   divergent: boolean;
   terryLine: string | null;
@@ -79,7 +81,7 @@ function loudness(rmsDb: number[], win: number): number[] {
   return out;
 }
 
-export async function analyzeReferencesAI(brief: string, refs: Reference[]): Promise<AiAnalysis> {
+export async function analyzeReferencesAI(brief: string, genre: Genre, refs: Reference[]): Promise<AiAnalysis> {
   const references = await Promise.all(
     refs.map(async (r) => {
       const m = r.metrics!;
@@ -104,11 +106,12 @@ export async function analyzeReferencesAI(brief: string, refs: Reference[]): Pro
       };
     }),
   );
-  return request<AiAnalysis>('/v1/analyze', { brief, references });
+  return request<AiAnalysis>('/v1/analyze', { brief, genre, references });
 }
 
 type ScriptCtx = {
   brief: string;
+  genre: Genre;
   targetDuration: number;
   audioModes: string[];
   features: StyleFeatures;

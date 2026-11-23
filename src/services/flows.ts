@@ -11,13 +11,14 @@ import {
 } from '../domain/style';
 import { suggestTrim } from '../domain/timeline';
 import { terry } from '../domain/terry';
-import type { AudioMode, Clip, HookOption, Observation, Project, Scene, StyleAnalysis, TargetDuration } from '../domain/types';
+import { DEFAULT_CAPTIONS, draftCaptions, newCue, toClipTime } from '../domain/captions';
+import type { AudioMode, CaptionCue, CaptionSettings, Clip, Genre, HookOption, Observation, Project, Scene, StyleAnalysis, TargetDuration } from '../domain/types';
 import { getProject, putProject, updateProject } from '../state/store';
 import { removeFile } from '../storage/projects';
 import { AiUnavailableError, aiConfigured, analyzeReferencesAI, generateScriptAI, regenerateSceneAI, type AiAnalysis } from './ai';
 import { analyzeReference, voiceOnsetOf } from './media';
 
-export function createProject(input: { brief: string; targetDuration: TargetDuration; audioModes: AudioMode[] }): Project {
+export function createProject(input: { brief: string; genre: Genre; targetDuration: TargetDuration; audioModes: AudioMode[] }): Project {
   const now = Date.now();
   const p: Project = {
     id: newId('proj'),
@@ -28,6 +29,7 @@ export function createProject(input: { brief: string; targetDuration: TargetDura
     isDemo: false,
     stage: 'references',
     brief: input.brief.trim(),
+    genre: input.genre,
     targetDuration: input.targetDuration,
     audioModes: input.audioModes,
     references: [],
@@ -82,6 +84,7 @@ export function createDemoProject(): Project {
     isDemo: true,
     stage: 'hooks',
     brief: DEMO_BRIEF,
+    genre: 'gastronomia',
     targetDuration: 30,
     audioModes: ['fala', 'ambiente'],
     references: [],
@@ -93,7 +96,7 @@ export function createDemoProject(): Project {
     skippedSceneIds: [],
     edit: { originalVolume: 1, narrationVolume: 1 },
   };
-  p.hooks = generateHooksLocal({ brief: p.brief, features, targetDuration: 30, audioModes: p.audioModes });
+  p.hooks = generateHooksLocal({ brief: p.brief, features, targetDuration: 30, audioModes: p.audioModes, genre: 'gastronomia' });
   putProject(p);
   return p;
 }
@@ -130,6 +133,7 @@ function mergeAiAnalysis(local: StyleAnalysis, ai: AiAnalysis): StyleAnalysis {
     combined,
     observations: [...aiObs, ...measured],
     divergent: ai.divergent || isDivergent(feats),
+    genre: ai.genre ? { detected: ai.genre, perReference: Object.fromEntries(ai.perReference.map((r) => [r.referenceId, r.genre])) } : undefined,
     terryLine: ruleLine ?? ai.terryLine,
     referenceIds: local.referenceIds,
   };
@@ -157,7 +161,7 @@ export async function runAnalysis(projectId: string, onProgress: AnalysisProgres
   if (aiConfigured()) {
     onProgress('Olhando como elas abrem, quando aparece rosto e comida…');
     try {
-      const ai = await analyzeReferencesAI(p.brief, p.references);
+      const ai = await analyzeReferencesAI(p.brief, p.genre ?? 'gastronomia', p.references);
       analysis = mergeAiAnalysis(local, ai);
     } catch (e) {
       note = e instanceof AiUnavailableError && e.reason === 'sem_chave' ? terry.analysisUnavailable('sem_servidor') : terry.analysisUnavailable('falha');
@@ -205,6 +209,7 @@ function scriptContext(p: Project) {
   const primarySummary = primary ? p.analysis!.perReference.find((r) => r.referenceId === primary.id)?.summary : undefined;
   return {
     brief: p.brief,
+    genre: p.genre ?? 'gastronomia',
     targetDuration: p.targetDuration,
     audioModes: p.audioModes,
     features,
@@ -383,4 +388,69 @@ export function toggleSkip(projectId: string, sceneId: string, skip: boolean) {
 
 export function briefFacts(p: Project) {
   return parseBrief(p.brief);
+}
+
+/** Troca o tipo de conteúdo. O roteiro já escolhido fica; as opções de gancho são refeitas. */
+export function setGenre(projectId: string, genre: Genre) {
+  updateProject(projectId, (p) => ({ ...p, genre }));
+}
+
+// ---------------------------------------------------------------------------
+// Legendas
+
+/** Liga as legendas e cria um rascunho a partir das falas do roteiro onde ainda não há texto. */
+export async function enableCaptions(projectId: string): Promise<number> {
+  const p = getProject(projectId)!;
+  const clips = { ...p.clips };
+  let drafted = 0;
+  for (const scene of p.scenes) {
+    const clip = scene.clipId ? clips[scene.clipId] : undefined;
+    if (!clip || clip.captions?.length || !scene.line) continue;
+    const onset = clip.hasAudio ? await voiceOnsetOf(projectId, clip.uri) : null;
+    const cues = draftCaptions(clip, scene, onset);
+    if (cues.length) {
+      clips[clip.id] = { ...clip, captions: cues };
+      drafted += cues.length;
+    }
+  }
+  updateProject(projectId, (cur) => ({
+    ...cur,
+    clips: Object.fromEntries(Object.entries(cur.clips).map(([id, c]) => [id, clips[id]?.captions && !c.captions?.length ? { ...c, captions: clips[id].captions } : c])),
+    captions: { ...DEFAULT_CAPTIONS, ...cur.captions, enabled: true },
+  }));
+  return drafted;
+}
+
+export function updateCaptionSettings(projectId: string, patch: Partial<CaptionSettings>) {
+  updateProject(projectId, (p) => ({ ...p, captions: { ...DEFAULT_CAPTIONS, ...p.captions, ...patch } }));
+}
+
+export function updateCue(projectId: string, clipId: string, cueId: string, patch: Partial<CaptionCue>) {
+  updateProject(projectId, (p) => {
+    const c = p.clips[clipId];
+    if (!c) return p;
+    return { ...p, clips: { ...p.clips, [clipId]: { ...c, captions: (c.captions ?? []).map((q) => (q.id === cueId ? { ...q, ...patch } : q)) } } };
+  });
+}
+
+export function deleteCue(projectId: string, clipId: string, cueId: string) {
+  updateProject(projectId, (p) => {
+    const c = p.clips[clipId];
+    if (!c) return p;
+    return { ...p, clips: { ...p.clips, [clipId]: { ...c, captions: (c.captions ?? []).filter((q) => q.id !== cueId) } } };
+  });
+}
+
+/** Nova legenda no instante atual da prévia (2 s, sem passar do fim do trecho). */
+export function addCueAt(projectId: string, t: number): string | null {
+  const p = getProject(projectId)!;
+  const at = toClipTime(p, t);
+  if (!at) return null;
+  const cue = newCue(at.time, Math.min(at.segEnd, at.time + 2), '');
+  updateProject(projectId, (cur) => {
+    const c = cur.clips[at.clipId];
+    const captions = [...(c.captions ?? []), cue].sort((a, b) => a.start - b.start);
+    return { ...cur, clips: { ...cur.clips, [at.clipId]: { ...c, captions } } };
+  });
+  return cue.id;
 }

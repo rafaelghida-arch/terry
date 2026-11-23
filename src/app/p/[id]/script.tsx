@@ -30,7 +30,8 @@ const DEMO_CLIPS = [require('../../../../assets/demo/demo-chapa.mp4'), require('
 
 const ROLE: Record<string, string> = {
   gancho: 'GANCHO', preparo: 'PREPARO', escala: 'ESCALA', revelacao: 'REVELAÇÃO', detalhe: 'DETALHE', mordida: 'MORDIDA',
-  reacao: 'REAÇÃO', fachada: 'FACHADA', contexto: 'CONTEXTO', fechamento: 'FECHAMENTO',
+  reacao: 'REAÇÃO', fachada: 'FACHADA', contexto: 'CONTEXTO', fechamento: 'FECHAMENTO', antes: 'ANTES', demonstracao: 'DEMONSTRAÇÃO',
+  passo: 'PASSO', resultado: 'RESULTADO', produto: 'PRODUTO', prova: 'PROVA', argumento: 'ARGUMENTO', chamada: 'CHAMADA',
 };
 
 export default function ScriptBoard() {

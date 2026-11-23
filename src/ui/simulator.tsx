@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { closeDialog, subscribeDialog, type DialogState } from './dialog';
 import { TerryMark } from './icons';
-import { C, R, T } from './theme';
+import { C, F, R, T } from './theme';
 
 export const PHONE = { width: 390, height: 844, status: 47, home: 30 };
 
@@ -141,10 +141,10 @@ export function PhoneFrame({ children }: { children: ReactNode }) {
     <View style={st.desk}>
       <View style={st.side}>
         <TerryMark size={40} />
-        <Text style={st.sideTitle}>TERRY</Text>
+        <Text style={st.sideTitle}>terry</Text>
         <Text style={st.sideText}>Simulador no navegador. Clique e arraste como se fosse o dedo.</Text>
         <Text style={st.sideText}>
-          Funciona aqui: projetos, referências do computador, análise de ritmo e som, roteiro, tomadas com a Galeria ou o Clipe exemplo, editor, aparar e enquadrar.
+          Funciona aqui: projetos de qualquer tipo (comida, make, review, opinião…), referências do computador, análise de ritmo e som, roteiro, tomadas com a Galeria ou o Clipe exemplo, editor, aparar, enquadrar e legendas.
         </Text>
         <Text style={st.sideText}>Só no celular: câmera, narração e exportação do MP4.</Text>
       </View>
@@ -166,9 +166,9 @@ export function PhoneFrame({ children }: { children: ReactNode }) {
 }
 
 const st = StyleSheet.create({
-  desk: { flex: 1, backgroundColor: '#0A0A0C', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 56, padding: 24 },
+  desk: { flex: 1, backgroundColor: '#08080A', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 56, padding: 24 },
   side: { width: 260, gap: 12 },
-  sideTitle: { color: C.text, fontSize: 28, fontWeight: '900', letterSpacing: 3 },
+  sideTitle: { color: C.text, fontSize: 30, fontFamily: F.display, letterSpacing: -0.5 },
   sideText: { color: C.dim, fontSize: 14, lineHeight: 20 },
   phone: { width: PHONE.width + 24, height: PHONE.height + 24, borderRadius: 64, backgroundColor: '#1C1C20', padding: 12, borderWidth: 1, borderColor: '#33333A' },
   screen: { flex: 1, borderRadius: 52, overflow: 'hidden', backgroundColor: C.bg },

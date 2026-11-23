@@ -2,6 +2,7 @@
 // Variações escolhidas de forma estável por projeto para não repetir bordão.
 
 import { parseBrief } from './brief';
+import { GENRE_INFO, PLANS, type Genre } from './genres';
 import { forms } from './scriptLocal';
 import type { Project, Scene } from './types';
 import { buildTimeline, formatDuration } from './timeline';
@@ -14,13 +15,13 @@ function hash(s: string) {
 const pick = (seed: string, options: string[]) => options[hash(seed) % options.length];
 
 export const terry = {
-  start: () => 'Me mostra uns vídeos que têm a sua cara.',
+  start: (genre?: Genre) => GENRE_INFO[genre ?? 'gastronomia'].start,
 
   briefPrompt: () => 'O que tu vai gravar hoje?',
 
   references(p: Project): string | null {
     const n = p.references.length;
-    if (n === 0) return 'Me mostra uns vídeos que têm a sua cara. Pode ser TikTok salvo na galeria.';
+    if (n === 0) return `${GENRE_INFO[p.genre ?? 'gastronomia'].start} Pode ser TikTok ou Reels salvo na galeria.`;
     if (n === 1) return pick(p.id + 'r1', ['Se tiver mais um, ajuda a separar o que é estilo do que é acaso.', 'Com mais um eu consigo ver o que se repete.']);
     return null;
   },
@@ -29,6 +30,14 @@ export const terry = {
     reason === 'sem_servidor'
       ? 'A análise por IA não está ligada neste aparelho. Medi ritmo e som aqui mesmo; o que eu não vi, você completa.'
       : 'Não consegui falar com a análise agora. Medi ritmo e som aqui no celular; você pode tentar de novo depois.',
+
+  /** As referências parecem de outro tipo de conteúdo que o briefing. */
+  genreMismatch(p: Project): string | null {
+    const detected = p.analysis?.genre?.detected;
+    const chosen = p.genre ?? 'gastronomia';
+    if (!detected || detected === chosen) return null;
+    return `Suas referências parecem ${GENRE_INFO[detected].label.toLowerCase()}, e o briefing fala de ${GENRE_INFO[chosen].label.toLowerCase()}. Sigo qual?`;
+  },
 
   divergent: () => 'Essas referências puxam pra lados diferentes. Qual tem mais a sua cara?',
 
@@ -74,6 +83,7 @@ export const terry = {
         return `Mão aberta embaixo ${forms(w).do} ${w}. É o tamanho que importa aqui.`;
       }
       default:
+        if (p.genre && p.genre !== 'gastronomia') return PLANS[p.genre].recordTip;
         return 'Segura o celular firme e grava um pouco antes e depois. Eu corto.';
     }
   },
@@ -88,6 +98,18 @@ export const terry = {
 
   review(p: Project): string {
     const tl = buildTimeline(p);
+    const g = p.genre ?? 'gastronomia';
+    const byGenre: Partial<Record<Genre, string>> = {
+      beleza: 'O primeiro corte tá pronto. Confere se a luz do antes e do resultado ficou igual.',
+      review: 'O primeiro corte tá pronto. Confere se o produto aparece com a marca legível.',
+      marketing: 'O primeiro corte tá pronto. Confere se a chamada do fim está clara e com a oferta certa.',
+      opiniao: 'O primeiro corte tá pronto. Confere se a fonte aparece quando você cita o dado.',
+      tutorial: 'O primeiro corte tá pronto. Confere se dá pra seguir cada passo sem pausar.',
+      vlog: 'O primeiro corte tá pronto. Confere se a sua fala do meio não ficou cortada.',
+      fitness: 'O primeiro corte tá pronto. Confere se cada exercício aparece inteiro, sem cortar a repetição.',
+      humor: 'O primeiro corte tá pronto. Confere o tempo da virada: o corte vem logo depois da última fala.',
+    };
+    if (byGenre[g]) return byGenre[g]!;
     const firstSpeech = tl.segments.find((s) => p.scenes[s.sceneIndex]?.line);
     if (firstSpeech && p.audioModes.includes('fala')) return 'O primeiro corte tá pronto. Dá uma olhada na entrada da sua fala.';
     if (p.audioModes.includes('narracao') && !p.edit.narration) return 'O primeiro corte tá pronto. Quando quiser, grava a narração por cima.';
